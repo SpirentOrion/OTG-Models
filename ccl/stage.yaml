@@ -1,0 +1,48 @@
+openapi: 3.0.3
+info:
+  title: CCL stage models
+  version: ^0.0.0
+components:
+  schemas:
+    Ccl.Stage:
+      description: >-
+        One stage in a multi-stage CCL test. Each stage has its own algorithm,
+        communicators, and traffic parameters. Stages are executed in stage_index
+        order. Used when Ccl.Config.stage_mode = multiple or llm.
+      type: object
+      required:
+        - name
+        - stage_index
+      properties:
+        name:
+          description: Unique name for this stage within the CCL configuration.
+          type: string
+          x-field-uid: 1
+        stage_index:
+          description: >-
+            0-based execution order within the stage sequence. Stages are
+            executed in ascending stage_index order.
+          type: integer
+          minimum: 0
+          x-field-uid: 2
+        algorithm:
+          $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
+          x-field-uid: 3
+        communicators:
+          description: >-
+            List of communicators for this stage. Each communicator defines
+            the set of ranks participating in the collective operation.
+          type: array
+          items:
+            $ref: './communicator.yaml#/components/schemas/Ccl.Communicator'
+          x-field-uid: 4
+        traffic_params:
+          $ref: './traffic_params.yaml#/components/schemas/Ccl.TrafficParams'
+          x-field-uid: 5
+        enable_bg_traffic:
+          description: >-
+            Enable background traffic streams (configured via Config.flows)
+            during this stage.
+          type: boolean
+          default: false
+          x-field-uid: 6

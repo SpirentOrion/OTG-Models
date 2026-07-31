@@ -1,0 +1,125 @@
+openapi: 3.0.3
+info:
+  title: CCL RoCEv2 parameters models
+  version: ^0.0.0
+components:
+  schemas:
+    Ccl.Rocev2Params:
+      description: >-
+        RoCEv2-specific parameters applied to all QPs generated for this CCL
+        configuration. Ignored when transport = none.
+      type: object
+      properties:
+        dscp:
+          description: >-
+            IP DSCP value. Must match the DUT lossless queue DSCP mapping
+            (typically 24 for RoCEv2 traffic classes).
+          type: integer
+          default: 24
+          minimum: 0
+          maximum: 63
+          x-field-uid: 1
+        ecn:
+          description: ECN field value in IP header.
+          type: string
+          x-field-uid: 2
+          x-enum:
+            non_ect:
+              x-field-uid: 1
+            ect_1:
+              x-field-uid: 2
+            ect_0:
+              x-field-uid: 3
+            ce:
+              x-field-uid: 4
+        pfc_priority:
+          description: >-
+            PFC priority class (0-7). Must match the DSCP-mapped lossless
+            queue on the DUT.
+          type: integer
+          default: 3
+          minimum: 0
+          maximum: 7
+          x-field-uid: 3
+        start_qp_number:
+          description: Starting QP number for rank 0. Subsequent QPs are allocated sequentially.
+          type: integer
+          default: 100
+          minimum: 2
+          maximum: 33554431
+          x-field-uid: 4
+        start_udp_src_port:
+          description: >-
+            Starting UDP source port for QP 0. Used for ECMP flow hashing.
+            Subsequent QPs increment this value.
+          type: integer
+          default: 49152
+          minimum: 0
+          maximum: 65535
+          x-field-uid: 5
+        transport_service_type:
+          description: >-
+            ud: Unreliable Datagram — connectionless, one QP to many; no CM
+            required. Used for AllToAllWithoutPXN.
+            rc: Reliable Connection — ACK-based; CM handshake required for QP
+            setup, but CCL implementations bypass CM via internal QP management.
+            Used for AllToAllWithPXN and Ring AllReduce.
+          type: string
+          x-field-uid: 6
+          x-enum:
+            ud:
+              x-field-uid: 1
+            rc:
+              x-field-uid: 2
+        burst_per_ack:
+          description: >-
+            Number of frames sent before expecting an ACK (RC mode only).
+            Maps to STC Rocev2GenPortParams.BurstPerAck.
+          type: integer
+          default: 64
+          minimum: 1
+          maximum: 65535
+          x-field-uid: 7
+        max_connections:
+          description: >-
+            Maximum number of outstanding connections per port.
+            Maps to STC Rocev2GenPortParams.MaxOutstandingConnections.
+          type: integer
+          default: 300
+          minimum: 1
+          maximum: 16777215
+          x-field-uid: 8
+        connection_reqs_per_sec:
+          description: >-
+            Connection setup request rate per second.
+            Maps to STC Rocev2GenPortParams.ConnRequestsPerSecond.
+          type: integer
+          default: 300
+          minimum: 1
+          maximum: 1000
+          x-field-uid: 9
+        enable_retransmit:
+          description: Enable RDMA message retransmission (RC mode only).
+          type: boolean
+          default: false
+          x-field-uid: 10
+        enable_ecn_cnp:
+          description: >-
+            Enable ECN/CNP congestion notification processing. When true, the
+            port generates CNP (Congestion Notification Packet) frames in
+            response to ECN-marked packets, activating DCQCN rate control.
+            Set false to measure baseline bandwidth without congestion control.
+            Maps to STC Rocev2GenPortParams.EnableEcnCnp.
+          type: boolean
+          default: true
+          x-field-uid: 11
+        enable_pfc:
+          description: >-
+            Enable PFC (Priority Flow Control) pause frame generation and
+            processing. When true, the port sends and honors PFC pause frames
+            on the configured pfc_priority queue for lossless Ethernet behavior.
+            Set false to test without flow control.
+            Maps to STC Rocev2GenPortParams.EnablePfc.
+          type: boolean
+          default: true
+          x-field-uid: 12

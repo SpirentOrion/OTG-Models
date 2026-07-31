@@ -69,14 +69,23 @@ components:
           x-field-uid: 10
         egress_only_tracking:
           description: |-
-            Container for specification of desired tracking, based on certain offset and length of bits 
-            for received packets on specified receive ports. 
-            It enables the user to retrieve information based on number of unique packets 
-            received for each unique value in the bits being tracked from the beginning of the test. 
+            Container for specification of desired tracking, based on certain offset and length of bits
+            for received packets on specified receive ports.
+            It enables the user to retrieve information based on number of unique packets
+            received for each unique value in the bits being tracked from the beginning of the test.
           type: array
           items:
             $ref: '../egress/egressonlytracking.yaml#/components/schemas/EgressOnlyTracking'
           x-field-uid: 11
+        ccl:
+          description: |-
+            Collective Communication Library configurations. Each entry defines one
+            CCL job (algorithm, communicators, traffic parameters). CCL configs are
+            independent of flows[] and are controlled via State.Traffic.Ccl.
+          type: array
+          items:
+            $ref: '../ccl/ccl.yaml#/components/schemas/Ccl.Config'
+          x-field-uid: 12
     Config.Options:
       description: |-
         Global configuration options.

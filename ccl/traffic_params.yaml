@@ -1,0 +1,115 @@
+openapi: 3.0.3
+info:
+  title: CCL traffic parameters models
+  version: ^0.0.0
+components:
+  schemas:
+    Ccl.TrafficParams:
+      description: >-
+        Traffic generation parameters for a CCL stage or single-stage config.
+        Controls data volume, frame sizing, QP count, and RoCEv2 transport settings.
+      type: object
+      properties:
+        data_size:
+          description: Total gradient/data size per iteration.
+          type: integer
+          default: 160
+          minimum: 1
+          x-field-uid: 1
+        data_size_unit:
+          description: Unit for data_size.
+          type: string
+          x-field-uid: 2
+          x-enum:
+            gigabit:
+              x-field-uid: 1
+            gigabyte:
+              x-field-uid: 2
+            megabit:
+              x-field-uid: 3
+            megabyte:
+              x-field-uid: 4
+            kilobyte:
+              x-field-uid: 5
+        frame_size:
+          description: >-
+            L1 frame size in bytes. RoCEv2 per-packet overhead is 90B
+            (14B Ethernet + 20B IP + 8B UDP + 12B BTH + 4B ICRC + 4B FCS +
+            28B preamble/IFG). Recommended values:
+            IB MTU 1024 -> frame_size = 1114 (1024 + 90B);
+            IB MTU 4096 -> frame_size = 4186 (4096 + 90B) — optimal for large
+            transfers. Maps to STC CclTrafficConfigParams.FrameSize with
+            FrameSizeType=L1FRAMESIZE.
+          type: integer
+          default: 4186
+          minimum: 90
+          maximum: 16383
+          x-field-uid: 3
+        qps_per_rank:
+          description: >-
+            Number of QPs between each rank pair. Increasing this value enables
+            ECMP multi-path utilization.
+          type: integer
+          default: 1
+          minimum: 1
+          maximum: 65535
+          x-field-uid: 4
+        rdma_msg_length_kb:
+          description: >-
+            RDMA message length in KB. Controls the size of each RDMA WRITE
+            operation. Maps to STC CclTrafficConfigParams.RdmaMsgLength.
+          type: integer
+          default: 4194304
+          minimum: 1
+          maximum: 4194304
+          x-field-uid: 5
+        reduce_time_ms:
+          description: >-
+            Fixed GPU compute (reduce) time per iteration step in ms.
+            Simulates compute time between network communication phases.
+          type: integer
+          default: 200
+          minimum: 0
+          x-field-uid: 6
+        min_reduce_time_ms:
+          description: Minimum reduce time when enable_random_reduce_time = true.
+          type: integer
+          default: 10
+          minimum: 0
+          x-field-uid: 7
+        max_reduce_time_ms:
+          description: Maximum reduce time when enable_random_reduce_time = true.
+          type: integer
+          default: 200
+          minimum: 0
+          x-field-uid: 8
+        enable_random_reduce_time:
+          description: >-
+            When true, randomize reduce time uniformly between min_reduce_time_ms
+            and max_reduce_time_ms on each iteration.
+          type: boolean
+          default: false
+          x-field-uid: 9
+        scheduling_type:
+          description: >-
+            frame_count: schedule N frames per flow per round-robin cycle.
+            data_size: schedule by data volume per flow per round-robin cycle.
+          type: string
+          x-field-uid: 10
+          x-enum:
+            frame_count:
+              x-field-uid: 1
+            data_size:
+              x-field-uid: 2
+        scheduling_data_size_kb:
+          description: >-
+            Data volume per flow per round-robin cycle in KB.
+            Used only when scheduling_type = data_size.
+          type: integer
+          default: 128
+          minimum: 1
+          x-field-uid: 11
+        rocev2:
+          description: RoCEv2-specific parameters. Ignored when transport = none.
+          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Params'
+          x-field-uid: 12

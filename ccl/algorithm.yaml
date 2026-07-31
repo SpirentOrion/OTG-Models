@@ -1,0 +1,91 @@
+openapi: 3.0.3
+info:
+  title: CCL algorithm models
+  version: ^0.0.0
+components:
+  schemas:
+    Ccl.Algorithm:
+      description: >-
+        CCL collective algorithm configuration. Selects the algorithm type,
+        phase isolation, and iteration/duration run mode.
+      type: object
+      properties:
+        choice:
+          description: >-
+            Algorithm selection.
+            ring_allreduce: NCCL Ring AllReduce, most common algorithm.
+            halving_doubling: Recursive halving-doubling, O(log N) steps.
+            dual_tree: Dual binary tree, low latency for small data.
+            alternating_ring: Alternating ring, reduces hot spots.
+            all_to_all_with_pxn: Full mesh via PXN proxy, cross-node multi-GPU.
+            all_to_all_without_pxn: Full mesh without PXN, single-node multi-GPU.
+            point_to_point: Direct point-to-point transfer (STC 5.64+).
+            mixed: Mixed algorithm (implementation-defined).
+            Note: reduce_scatter and all_gather are phases of allreduce variants,
+            not standalone algorithms. Use choice=ring_allreduce (or other
+            allreduce variants) with phase=reduce_scatter / phase=all_gather.
+          type: string
+          x-field-uid: 1
+          x-enum:
+            ring_allreduce:
+              x-field-uid: 1
+            halving_doubling:
+              x-field-uid: 2
+            dual_tree:
+              x-field-uid: 3
+            alternating_ring:
+              x-field-uid: 4
+            all_to_all_with_pxn:
+              x-field-uid: 5
+            all_to_all_without_pxn:
+              x-field-uid: 6
+            point_to_point:
+              x-field-uid: 7
+            mixed:
+              x-field-uid: 8
+        phase:
+          description: >-
+            Algorithm phase. Applies when choice is an allreduce variant
+            (ring_allreduce, halving_doubling, dual_tree, alternating_ring).
+            allreduce: full ReduceScatter + AllGather (default).
+            reduce_scatter: only the scatter phase.
+            all_gather: only the gather phase.
+          type: string
+          x-field-uid: 2
+          x-enum:
+            allreduce:
+              x-field-uid: 1
+            reduce_scatter:
+              x-field-uid: 2
+            all_gather:
+              x-field-uid: 3
+        iteration_count:
+          description: Number of algorithm iterations to run (used when run_mode = iteration).
+          type: integer
+          default: 10
+          minimum: 1
+          maximum: 2147483647
+          x-field-uid: 3
+        iteration_interval_ms:
+          description: Wait time between consecutive iterations (ms).
+          type: integer
+          default: 1000
+          minimum: 0
+          x-field-uid: 4
+        run_mode:
+          description: >-
+            iteration: run for a fixed iteration_count.
+            duration: run for duration_sec seconds.
+          type: string
+          x-field-uid: 5
+          x-enum:
+            iteration:
+              x-field-uid: 1
+            duration:
+              x-field-uid: 2
+        duration_sec:
+          description: Test duration in seconds. Used when run_mode = duration.
+          type: integer
+          default: 1
+          minimum: 1
+          x-field-uid: 6
