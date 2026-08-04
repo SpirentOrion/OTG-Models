@@ -56,8 +56,14 @@ components:
           x-field-uid: 4
         rdma_msg_length_kb:
           description: >-
-            RDMA message length in KB. Controls the size of each RDMA WRITE
-            operation. Maps to STC CclTrafficConfigParams.RdmaMsgLength.
+            Maximum size of each RDMA WRITE operation in KB (RC mode only).
+            Different chunk sizes produce measurably different traffic patterns:
+            small values (e.g. 64 KB) generate many short RDMA Writes with
+            frequent ACKs; large values (e.g. 2 MB) generate fewer but larger
+            bursts. Real GPU applications (GPUDirect RDMA) operate at varying
+            message granularities, and DUT behavior differs between these
+            scenarios. Omit or set to the default (4194304) to let the
+            implementation auto-compute the transfer size from data_size.
           type: integer
           default: 4194304
           minimum: 1
@@ -110,6 +116,6 @@ components:
           minimum: 1
           x-field-uid: 11
         rocev2:
-          description: RoCEv2-specific parameters. Ignored when transport = none.
+          description: RoCEv2-specific parameters. Only applicable when transport = rocev2.
           $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Params'
           x-field-uid: 12

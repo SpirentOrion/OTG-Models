@@ -8,8 +8,7 @@ components:
       description: >-
         A communicator defines the set of devices (ranks) participating in one
         collective operation. Corresponds to MPI_Comm / NCCL communicator.
-        For transport rocev2/uet: use device_names (IP/MAC taken from devices[]).
-        For transport none: use port_names (no IP needed).
+        Use device_names (IP/MAC taken from devices[]).
         List order determines rank assignment: index 0 = rank 0.
         Multiple communicators model parallel training jobs sharing the same fabric.
       type: object
@@ -26,26 +25,10 @@ components:
             communicator. Each device must have ethernet + ipv4/ipv6 configured.
             CCL reads IP/MAC from these devices and generates QP configuration
             automatically. Do NOT configure device.rocev2 on these devices.
-            Required when transport = rocev2 or uet.
+            List order determines rank assignment: index 0 = rank 0.
           type: array
           items:
             type: string
           x-constraint:
             - '/components/schemas/Device/properties/name'
           x-field-uid: 2
-        port_names:
-          description: >-
-            Ordered list of port names (from Config.ports).
-            Used only when transport = none. Ignored when device_names is set.
-          type: array
-          items:
-            type: string
-          x-constraint:
-            - '/components/schemas/Port/properties/name'
-          x-field-uid: 3
-        algorithm:
-          description: >-
-            Per-communicator algorithm override. When set, overrides the
-            parent Ccl.Config or Ccl.Stage algorithm for this communicator.
-          $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
-          x-field-uid: 4

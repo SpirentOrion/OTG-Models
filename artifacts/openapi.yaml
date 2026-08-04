@@ -359,12 +359,10 @@ components:
           x-field-uid: 11
         ccl:
           description: |-
-            Collective Communication Library configurations. Each entry defines one
-            CCL job (algorithm, communicators, traffic parameters). CCL configs are
-            independent of flows[] and are controlled via State.Traffic.Ccl.
-          type: array
-          items:
-            $ref: '#/components/schemas/Ccl.Config'
+            Collective Communication Library configuration. Defines one CCL job
+            (algorithm, communicators, traffic parameters). Independent of flows[]
+            and controlled via State.Traffic.Ccl.
+          $ref: '#/components/schemas/Ccl.Config'
           x-field-uid: 12
     Config.Options:
       description: |-
@@ -19034,7 +19032,7 @@ components:
           - auto_macsec
     Ccl.Config:
       description: |-
-        Collective communication configuration. Simulates NCCL-style AllReduce / AllToAll operations and measures Job Completion Time (JCT). Supports single-stage and multi-stage (multiple/llm) modes.
+        Collective communication configuration. Simulates NCCL-style AllReduce / AllToAll operations and measures Job Completion Time (JCT). Algorithm, communicators, and traffic parameters are configured per stage via stages[]. For a simple single-algorithm test, define one stage.
       type: object
       required:
       - name
@@ -19046,7 +19044,7 @@ components:
           x-field-uid: 1
         transport:
           description: |-
-            Underlying transport type for CCL traffic. rocev2: RoCEv2 QP-based transport (production AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+). none: Pure algorithm simulation over standard Ethernet flows.
+            Underlying transport type for CCL traffic. rocev2: RoCEv2 QP-based transport (production AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
           type: string
           x-field-uid: 2
           x-enum:
@@ -19054,25 +19052,9 @@ components:
               x-field-uid: 1
             uet:
               x-field-uid: 2
-            none:
-              x-field-uid: 3
           enum:
           - rocev2
           - uet
-          - none
-        encapsulation:
-          description: |-
-            IP encapsulation type.
-          type: string
-          x-field-uid: 3
-          x-enum:
-            ipv4:
-              x-field-uid: 1
-            ipv6:
-              x-field-uid: 2
-          enum:
-          - ipv4
-          - ipv6
         send_mode:
           description: |-
             async: next iteration starts without waiting for all ranks to complete (pipelined). sync: each iteration waits for all ranks to complete before proceeding.
@@ -19095,114 +19077,62 @@ components:
           x-field-uid: 5
         stage_mode:
           description: |-
-            single: one algorithm, backward-compatible default. multiple: N stages executed in sequence, each with its own algorithm and communicators. llm: LLM-specific multi-phase mode (Prefill/Decode etc.).
+            default: standard sequential stage execution. llm: LLM-specific multi-phase mode (Prefill/Decode etc.); enables LLM-aware Sequencer behavior in the backend.
           type: string
           x-field-uid: 6
           x-enum:
-            single:
+            default:
               x-field-uid: 1
-            multiple:
-              x-field-uid: 2
             llm:
               x-field-uid: 3
           enum:
-          - single
-          - multiple
+          - default
           - llm
         stage_loop_count:
           description: |-
-            Number of times to repeat the full stage sequence (all stages = one loop). Only effective when stage_mode = multiple or llm.
+            Number of times to repeat the full stage sequence (all stages = one loop). Ignored when stages contains only one entry.
           type: integer
           default: 1
           minimum: 1
           x-field-uid: 7
-        stream_result_count:
-          description: |-
-            Top-N streams to record for tail latency results.
-          type: integer
-          default: 50
-          minimum: 0
-          maximum: 10000
-          x-field-uid: 8
-        stream_result_top_by:
-          description: |-
-            Dimension used to select top-N streams for tail latency recording.
-          type: string
-          x-field-uid: 9
-          x-enum:
-            duration:
-              x-field-uid: 1
-            drop_count:
-              x-field-uid: 2
-            reorder_count:
-              x-field-uid: 3
-          enum:
-          - duration
-          - drop_count
-          - reorder_count
-        abnormal_threshold:
-          $ref: '#/components/schemas/Ccl.AbnormalThreshold'
-          x-field-uid: 10
-        algorithm:
-          description: |-
-            Algorithm configuration for single-stage mode (stage_mode = single).
-          $ref: '#/components/schemas/Ccl.Algorithm'
-          x-field-uid: 11
-        communicators:
-          description: |-
-            List of communicators for single-stage mode (stage_mode = single). Each communicator defines the set of ranks participating in the collective operation.
-          type: array
-          items:
-            $ref: '#/components/schemas/Ccl.Communicator'
-          x-field-uid: 12
-        traffic_params:
-          description: |-
-            Traffic parameters for single-stage mode (stage_mode = single).
-          $ref: '#/components/schemas/Ccl.TrafficParams'
-          x-field-uid: 13
         stages:
           description: |-
-            Ordered list of stages. Used when stage_mode = multiple or llm. Overrides top-level algorithm/communicators/traffic_params.
+            Ordered list of stages. Each stage defines its own algorithm, communicators, and traffic parameters. For a single-algorithm test, provide exactly one stage.
           type: array
           items:
             $ref: '#/components/schemas/Ccl.Stage'
           x-field-uid: 14
-    Ccl.AbnormalThreshold:
+    Ccl.Stage:
       description: |-
-        Thresholds for flagging and recording abnormal iterations. When any threshold is exceeded in an iteration, that iteration is captured in CclAbnormalIterationMetric results. Set a threshold to 0 to disable it.
+        One stage in a CCL test. Each stage defines its own algorithm, communicators, and traffic parameters. Stages are executed in the order they appear in Ccl.Config.stages[].
       type: object
+      required:
+      - name
       properties:
-        jct_percent_threshold:
+        name:
           description: |-
-            Record if CalibratedJCT / IdealJCT * 100 exceeds this value. Example: 105.0 means record iterations that are more than 5% slower than ideal JCT.
-          type: number
-          format: float
-          default: 105.0
-          minimum: 0
+            Unique name for this stage within the CCL configuration.
+          type: string
           x-field-uid: 1
-        packet_drop_percent_threshold:
-          description: |-
-            Record if the packet drop percentage exceeds this value.
-          type: number
-          format: float
-          default: 5.0
-          minimum: 0
-          x-field-uid: 2
-        packet_reorder_percent_threshold:
-          description: |-
-            Record if the packet reorder percentage exceeds this value.
-          type: number
-          format: float
-          default: 5.0
-          minimum: 0
+        algorithm:
+          $ref: '#/components/schemas/Ccl.Algorithm'
           x-field-uid: 3
-        max_record_count:
+        communicators:
           description: |-
-            Maximum number of abnormal iteration records to retain.
-          type: integer
-          default: 5000
-          minimum: 1
+            List of communicators for this stage. Each communicator defines the set of ranks participating in the collective operation.
+          type: array
+          items:
+            $ref: '#/components/schemas/Ccl.Communicator'
           x-field-uid: 4
+        traffic_params:
+          $ref: '#/components/schemas/Ccl.TrafficParams'
+          x-field-uid: 5
+        enable_bg_traffic:
+          description: |-
+            Enable background traffic streams (configured via Config.flows) during this stage. In single-stage mode users control bg traffic independently via SetControlState(flows). In multi-stage mode the Sequencer uses this flag to start/stop flows between stages.
+          type: boolean
+          default: false
+          x-field-uid: 6
     Ccl.Algorithm:
       description: |-
         CCL collective algorithm configuration. Selects the algorithm type, phase isolation, and iteration/duration run mode.
@@ -19292,7 +19222,7 @@ components:
           x-field-uid: 6
     Ccl.Communicator:
       description: |-
-        A communicator defines the set of devices (ranks) participating in one collective operation. Corresponds to MPI_Comm / NCCL communicator. For transport rocev2/uet: use device_names (IP/MAC taken from devices[]). For transport none: use port_names (no IP needed). List order determines rank assignment: index 0 = rank 0. Multiple communicators model parallel training jobs sharing the same fabric.
+        A communicator defines the set of devices (ranks) participating in one collective operation. Corresponds to MPI_Comm / NCCL communicator. Use device_names (IP/MAC taken from devices[]). List order determines rank assignment: index 0 = rank 0. Multiple communicators model parallel training jobs sharing the same fabric.
       type: object
       required:
       - name
@@ -19304,7 +19234,7 @@ components:
           x-field-uid: 1
         device_names:
           description: |
-            Ordered list of device names (from Config.devices) forming this communicator. Each device must have ethernet + ipv4/ipv6 configured. CCL reads IP/MAC from these devices and generates QP configuration automatically. Do NOT configure device.rocev2 on these devices. Required when transport = rocev2 or uet.
+            Ordered list of device names (from Config.devices) forming this communicator. Each device must have ethernet + ipv4/ipv6 configured. CCL reads IP/MAC from these devices and generates QP configuration automatically. Do NOT configure device.rocev2 on these devices. List order determines rank assignment: index 0 = rank 0.
 
             x-constraint:
             - /components/schemas/Device/properties/name
@@ -19314,23 +19244,6 @@ components:
           x-constraint:
           - /components/schemas/Device/properties/name
           x-field-uid: 2
-        port_names:
-          description: |
-            Ordered list of port names (from Config.ports). Used only when transport = none. Ignored when device_names is set.
-
-            x-constraint:
-            - /components/schemas/Port/properties/name
-          type: array
-          items:
-            type: string
-          x-constraint:
-          - /components/schemas/Port/properties/name
-          x-field-uid: 3
-        algorithm:
-          description: |-
-            Per-communicator algorithm override. When set, overrides the parent Ccl.Config or Ccl.Stage algorithm for this communicator.
-          $ref: '#/components/schemas/Ccl.Algorithm'
-          x-field-uid: 4
     Ccl.TrafficParams:
       description: |-
         Traffic generation parameters for a CCL stage or single-stage config. Controls data volume, frame sizing, QP count, and RoCEv2 transport settings.
@@ -19438,12 +19351,12 @@ components:
           x-field-uid: 11
         rocev2:
           description: |-
-            RoCEv2-specific parameters. Ignored when transport = none.
+            RoCEv2-specific parameters. Only applicable when transport = rocev2.
           $ref: '#/components/schemas/Ccl.Rocev2Params'
           x-field-uid: 12
     Ccl.Rocev2Params:
       description: |-
-        RoCEv2 transport parameters used as a global template for all QPs auto-generated by the CCL engine. Only applicable when Ccl.Config.transport = rocev2; ignored for transport = uet or none.
+        RoCEv2 transport parameters used as a global template for all QPs auto-generated by the CCL engine. Only applicable when Ccl.Config.transport = rocev2; ignored for transport = uet.
         CCL auto-generates O(rankCount x qps_per_rank x algorithm_steps) QPs per communicator. Unlike Device.Rocev2Peer where each QP is individually configured by the user, Ccl.Rocev2Params defines shared defaults applied uniformly across all generated QPs.
         dscp, ecn, pfc_priority, start_qp_number, start_udp_src_port, and transport_service_type correspond conceptually to fields in Device.Rocev2Peer.Rocev2.QPParameters, but apply as global defaults rather than per-QP settings. start_qp_number and start_udp_src_port are base values from which the CCL engine increments sequentially across generated QPs (e.g. start_qp_number=100 yields QP0=100, QP1=101, ...).
         enable_ecn_cnp and enable_pfc are CCL-level on/off switches for DCQCN and PFC. Fine-grained DCQCN algorithm tuning (alpha, rate timers) is out of CCL scope and belongs in Rocev2.PerPortSettings.dcqcn_settings. enable_retransmit is a simplified on/off for all CCL QPs; the per-QP equivalent (Rocev2.AckAndNak.enable_retransmission_timeout) also exposes timeout_value and retry_count knobs not needed at CCL level.
@@ -19558,44 +19471,20 @@ components:
           type: boolean
           default: true
           x-field-uid: 12
-    Ccl.Stage:
-      description: |-
-        One stage in a multi-stage CCL test. Each stage has its own algorithm, communicators, and traffic parameters. Stages are executed in stage_index order. Used when Ccl.Config.stage_mode = multiple or llm.
-      type: object
-      required:
-      - name
-      - stage_index
-      properties:
-        name:
+        encapsulation:
           description: |-
-            Unique name for this stage within the CCL configuration.
+            IP encapsulation type for all auto-generated QP data packets. ipv4: standard RoCEv2 over IPv4 (most common deployment). ipv6: RoCEv2 over IPv6 with Global Routing Header (GRH); requires IPv6 addresses configured on the communicator devices.
           type: string
-          x-field-uid: 1
-        stage_index:
-          description: |-
-            0-based execution order within the stage sequence. Stages are executed in ascending stage_index order.
-          type: integer
-          minimum: 0
-          x-field-uid: 2
-        algorithm:
-          $ref: '#/components/schemas/Ccl.Algorithm'
-          x-field-uid: 3
-        communicators:
-          description: |-
-            List of communicators for this stage. Each communicator defines the set of ranks participating in the collective operation.
-          type: array
-          items:
-            $ref: '#/components/schemas/Ccl.Communicator'
-          x-field-uid: 4
-        traffic_params:
-          $ref: '#/components/schemas/Ccl.TrafficParams'
-          x-field-uid: 5
-        enable_bg_traffic:
-          description: |-
-            Enable background traffic streams (configured via Config.flows) during this stage.
-          type: boolean
-          default: false
-          x-field-uid: 6
+          default: ipv4
+          x-field-uid: 13
+          x-enum:
+            ipv4:
+              x-field-uid: 1
+            ipv6:
+              x-field-uid: 2
+          enum:
+          - ipv4
+          - ipv6
     PerPort.Options:
       description: |-
         Port specific configurations.

@@ -10,7 +10,8 @@ components:
       description: >-
         Collective communication configuration. Simulates NCCL-style
         AllReduce / AllToAll operations and measures Job Completion Time (JCT).
-        Supports single-stage and multi-stage (multiple/llm) modes.
+        Algorithm, communicators, and traffic parameters are configured per
+        stage via stages[]. For a simple single-algorithm test, define one stage.
       type: object
       required:
         - name
@@ -26,24 +27,12 @@ components:
             Underlying transport type for CCL traffic.
             rocev2: RoCEv2 QP-based transport (production AI Fabric).
             uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
-            none: Pure algorithm simulation over standard Ethernet flows.
           type: string
           x-field-uid: 2
           x-enum:
             rocev2:
               x-field-uid: 1
             uet:
-              x-field-uid: 2
-            none:
-              x-field-uid: 3
-        encapsulation:
-          description: IP encapsulation type.
-          type: string
-          x-field-uid: 3
-          x-enum:
-            ipv4:
-              x-field-uid: 1
-            ipv6:
               x-field-uid: 2
         send_mode:
           description: >-
@@ -67,72 +56,29 @@ components:
           x-field-uid: 5
         stage_mode:
           description: >-
-            single: one algorithm, backward-compatible default.
-            multiple: N stages executed in sequence, each with its own algorithm
-            and communicators.
-            llm: LLM-specific multi-phase mode (Prefill/Decode etc.).
+            default: standard sequential stage execution.
+            llm: LLM-specific multi-phase mode (Prefill/Decode etc.); enables
+            LLM-aware Sequencer behavior in the backend.
           type: string
           x-field-uid: 6
           x-enum:
-            single:
+            default:
               x-field-uid: 1
-            multiple:
-              x-field-uid: 2
             llm:
               x-field-uid: 3
         stage_loop_count:
           description: >-
             Number of times to repeat the full stage sequence (all stages = one
-            loop). Only effective when stage_mode = multiple or llm.
+            loop). Ignored when stages contains only one entry.
           type: integer
           default: 1
           minimum: 1
           x-field-uid: 7
-        stream_result_count:
-          description: >-
-            Top-N streams to record for tail latency results.
-          type: integer
-          default: 50
-          minimum: 0
-          maximum: 10000
-          x-field-uid: 8
-        stream_result_top_by:
-          description: Dimension used to select top-N streams for tail latency recording.
-          type: string
-          x-field-uid: 9
-          x-enum:
-            duration:
-              x-field-uid: 1
-            drop_count:
-              x-field-uid: 2
-            reorder_count:
-              x-field-uid: 3
-        abnormal_threshold:
-          $ref: './abnormal_threshold.yaml#/components/schemas/Ccl.AbnormalThreshold'
-          x-field-uid: 10
-        algorithm:
-          description: >-
-            Algorithm configuration for single-stage mode (stage_mode = single).
-          $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
-          x-field-uid: 11
-        communicators:
-          description: >-
-            List of communicators for single-stage mode (stage_mode = single).
-            Each communicator defines the set of ranks participating in the
-            collective operation.
-          type: array
-          items:
-            $ref: './communicator.yaml#/components/schemas/Ccl.Communicator'
-          x-field-uid: 12
-        traffic_params:
-          description: >-
-            Traffic parameters for single-stage mode (stage_mode = single).
-          $ref: './traffic_params.yaml#/components/schemas/Ccl.TrafficParams'
-          x-field-uid: 13
         stages:
           description: >-
-            Ordered list of stages. Used when stage_mode = multiple or llm.
-            Overrides top-level algorithm/communicators/traffic_params.
+            Ordered list of stages. Each stage defines its own algorithm,
+            communicators, and traffic parameters. For a single-algorithm test,
+            provide exactly one stage.
           type: array
           items:
             $ref: './stage.yaml#/components/schemas/Ccl.Stage'

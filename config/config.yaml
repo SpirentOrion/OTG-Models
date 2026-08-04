@@ -79,12 +79,10 @@ components:
           x-field-uid: 11
         ccl:
           description: |-
-            Collective Communication Library configurations. Each entry defines one
-            CCL job (algorithm, communicators, traffic parameters). CCL configs are
-            independent of flows[] and are controlled via State.Traffic.Ccl.
-          type: array
-          items:
-            $ref: '../ccl/ccl.yaml#/components/schemas/Ccl.Config'
+            Collective Communication Library configuration. Defines one CCL job
+            (algorithm, communicators, traffic parameters). Independent of flows[]
+            and controlled via State.Traffic.Ccl.
+          $ref: '../ccl/ccl.yaml#/components/schemas/Ccl.Config'
           x-field-uid: 12
     Config.Options:
       description: |-

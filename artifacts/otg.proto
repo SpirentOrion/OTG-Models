@@ -63,10 +63,10 @@ message Config {
   // test.
   repeated EgressOnlyTracking egress_only_tracking = 11;
 
-  // Collective Communication Library configurations. Each entry defines one
-  // CCL job (algorithm, communicators, traffic parameters). CCL configs are
-  // independent of flows[] and are controlled via State.Traffic.Ccl.
-  repeated CclConfig ccl = 12;
+  // Collective Communication Library configuration. Defines one CCL job
+  // (algorithm, communicators, traffic parameters). Independent of flows[]
+  // and controlled via State.Traffic.Ccl.
+  CclConfig ccl = 12;
 }
 
 // Global configuration options.
@@ -14618,8 +14618,9 @@ message EgressOnlyTrackingFilter {
 }
 
 // Collective communication configuration. Simulates NCCL-style AllReduce / AllToAll
-// operations and measures Job Completion Time (JCT). Supports single-stage and multi-stage
-// (multiple/llm) modes.
+// operations and measures Job Completion Time (JCT). Algorithm, communicators, and
+// traffic parameters are configured per stage via stages[]. For a simple single-algorithm
+// test, define one stage.
 message CclConfig {
 
   // Unique name for this CCL configuration. Used as a reference in metrics requests.
@@ -14631,23 +14632,11 @@ message CclConfig {
       unspecified = 0;
       rocev2 = 1;
       uet = 2;
-      none = 3;
     }
   }
   // Underlying transport type for CCL traffic. rocev2: RoCEv2 QP-based transport (production
-  // AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+). none: Pure algorithm
-  // simulation over standard Ethernet flows.
+  // AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
   optional Transport.Enum transport = 2;
-
-  message Encapsulation {
-    enum Enum {
-      unspecified = 0;
-      ipv4 = 1;
-      ipv6 = 2;
-    }
-  }
-  // IP encapsulation type.
-  optional Encapsulation.Enum encapsulation = 3;
 
   message SendMode {
     enum Enum {
@@ -14667,75 +14656,47 @@ message CclConfig {
   message StageMode {
     enum Enum {
       unspecified = 0;
-      single = 1;
-      multiple = 2;
+      default = 1;
       llm = 3;
     }
   }
-  // single: one algorithm, backward-compatible default. multiple: N stages executed in
-  // sequence, each with its own algorithm and communicators. llm: LLM-specific multi-phase
-  // mode (Prefill/Decode etc.).
+  // default: standard sequential stage execution. llm: LLM-specific multi-phase mode
+  // (Prefill/Decode etc.); enables LLM-aware Sequencer behavior in the backend.
   optional StageMode.Enum stage_mode = 6;
 
-  // Number of times to repeat the full stage sequence (all stages = one loop). Only effective
-  // when stage_mode = multiple or llm.
+  // Number of times to repeat the full stage sequence (all stages = one loop). Ignored
+  // when stages contains only one entry.
   // default = 1
   optional int32 stage_loop_count = 7;
 
-  // Top-N streams to record for tail latency results.
-  // default = 50
-  optional int32 stream_result_count = 8;
-
-  message StreamResultTopBy {
-    enum Enum {
-      unspecified = 0;
-      duration = 1;
-      drop_count = 2;
-      reorder_count = 3;
-    }
-  }
-  // Dimension used to select top-N streams for tail latency recording.
-  optional StreamResultTopBy.Enum stream_result_top_by = 9;
-
-  // Description missing in models
-  CclAbnormalThreshold abnormal_threshold = 10;
-
-  // Algorithm configuration for single-stage mode (stage_mode = single).
-  CclAlgorithm algorithm = 11;
-
-  // List of communicators for single-stage mode (stage_mode = single). Each communicator
-  // defines the set of ranks participating in the collective operation.
-  repeated CclCommunicator communicators = 12;
-
-  // Traffic parameters for single-stage mode (stage_mode = single).
-  CclTrafficParams traffic_params = 13;
-
-  // Ordered list of stages. Used when stage_mode = multiple or llm. Overrides top-level
-  // algorithm/communicators/traffic_params.
+  // Ordered list of stages. Each stage defines its own algorithm, communicators, and
+  // traffic parameters. For a single-algorithm test, provide exactly one stage.
   repeated CclStage stages = 14;
 }
 
-// Thresholds for flagging and recording abnormal iterations. When any threshold is
-// exceeded in an iteration, that iteration is captured in CclAbnormalIterationMetric
-// results. Set a threshold to 0 to disable it.
-message CclAbnormalThreshold {
+// One stage in a CCL test. Each stage defines its own algorithm, communicators, and
+// traffic parameters. Stages are executed in the order they appear in Ccl.Config.stages[].
+message CclStage {
 
-  // Record if CalibratedJCT / IdealJCT * 100 exceeds this value. Example: 105.0 means
-  // record iterations that are more than 5% slower than ideal JCT.
-  // default = 105.0
-  optional float jct_percent_threshold = 1;
+  // Unique name for this stage within the CCL configuration.
+  // required = true
+  optional string name = 1;
 
-  // Record if the packet drop percentage exceeds this value.
-  // default = 5.0
-  optional float packet_drop_percent_threshold = 2;
+  // Description missing in models
+  CclAlgorithm algorithm = 3;
 
-  // Record if the packet reorder percentage exceeds this value.
-  // default = 5.0
-  optional float packet_reorder_percent_threshold = 3;
+  // List of communicators for this stage. Each communicator defines the set of ranks
+  // participating in the collective operation.
+  repeated CclCommunicator communicators = 4;
 
-  // Maximum number of abnormal iteration records to retain.
-  // default = 5000
-  optional int32 max_record_count = 4;
+  // Description missing in models
+  CclTrafficParams traffic_params = 5;
+
+  // Enable background traffic streams (configured via Config.flows) during this stage.
+  // In single-stage mode users control bg traffic independently via SetControlState(flows).
+  // In multi-stage mode the Sequencer uses this flag to start/stop flows between stages.
+  // default = False
+  optional bool enable_bg_traffic = 6;
 }
 
 // CCL collective algorithm configuration. Selects the algorithm type, phase isolation,
@@ -14802,9 +14763,8 @@ message CclAlgorithm {
 }
 
 // A communicator defines the set of devices (ranks) participating in one collective
-// operation. Corresponds to MPI_Comm / NCCL communicator. For transport rocev2/uet:
-// use device_names (IP/MAC taken from devices[]). For transport none: use port_names
-// (no IP needed). List order determines rank assignment: index 0 = rank 0. Multiple
+// operation. Corresponds to MPI_Comm / NCCL communicator. Use device_names (IP/MAC
+// taken from devices[]). List order determines rank assignment: index 0 = rank 0. Multiple
 // communicators model parallel training jobs sharing the same fabric.
 message CclCommunicator {
 
@@ -14815,24 +14775,12 @@ message CclCommunicator {
   // Ordered list of device names (from Config.devices) forming this communicator. Each
   // device must have ethernet + ipv4/ipv6 configured. CCL reads IP/MAC from these devices
   // and generates QP configuration automatically. Do NOT configure device.rocev2 on these
-  // devices. Required when transport = rocev2 or uet.
+  // devices. List order determines rank assignment: index 0 = rank 0.
   // 
   // x-constraint:
   // - /components/schemas/Device/properties/name
   // 
   repeated string device_names = 2;
-
-  // Ordered list of port names (from Config.ports). Used only when transport = none.
-  // Ignored when device_names is set.
-  // 
-  // x-constraint:
-  // - /components/schemas/Port/properties/name
-  // 
-  repeated string port_names = 3;
-
-  // Per-communicator algorithm override. When set, overrides the parent Ccl.Config or
-  // Ccl.Stage algorithm for this communicator.
-  CclAlgorithm algorithm = 4;
 }
 
 // Traffic generation parameters for a CCL stage or single-stage config. Controls data
@@ -14908,13 +14856,13 @@ message CclTrafficParams {
   // default = 128
   optional int32 scheduling_data_size_kb = 11;
 
-  // RoCEv2-specific parameters. Ignored when transport = none.
+  // RoCEv2-specific parameters. Only applicable when transport = rocev2.
   CclRocev2Params rocev2 = 12;
 }
 
 // RoCEv2 transport parameters used as a global template for all QPs auto-generated
 // by the CCL engine. Only applicable when Ccl.Config.transport = rocev2; ignored for
-// transport = uet or none.
+// transport = uet.
 // CCL auto-generates O(rankCount x qps_per_rank x algorithm_steps) QPs per communicator.
 // Unlike Device.Rocev2Peer where each QP is individually configured by the user, Ccl.Rocev2Params
 // defines shared defaults applied uniformly across all generated QPs.
@@ -15056,35 +15004,19 @@ message CclRocev2Params {
   // identified by pfc_priority.
   // default = True
   optional bool enable_pfc = 12;
-}
 
-// One stage in a multi-stage CCL test. Each stage has its own algorithm, communicators,
-// and traffic parameters. Stages are executed in stage_index order. Used when Ccl.Config.stage_mode
-// = multiple or llm.
-message CclStage {
-
-  // Unique name for this stage within the CCL configuration.
-  // required = true
-  optional string name = 1;
-
-  // 0-based execution order within the stage sequence. Stages are executed in ascending
-  // stage_index order.
-  // required = true
-  optional int32 stage_index = 2;
-
-  // Description missing in models
-  CclAlgorithm algorithm = 3;
-
-  // List of communicators for this stage. Each communicator defines the set of ranks
-  // participating in the collective operation.
-  repeated CclCommunicator communicators = 4;
-
-  // Description missing in models
-  CclTrafficParams traffic_params = 5;
-
-  // Enable background traffic streams (configured via Config.flows) during this stage.
-  // default = False
-  optional bool enable_bg_traffic = 6;
+  message Encapsulation {
+    enum Enum {
+      unspecified = 0;
+      ipv4 = 1;
+      ipv6 = 2;
+    }
+  }
+  // IP encapsulation type for all auto-generated QP data packets. ipv4: standard RoCEv2
+  // over IPv4 (most common deployment). ipv6: RoCEv2 over IPv6 with Global Routing Header
+  // (GRH); requires IPv6 addresses configured on the communicator devices.
+  // default = Encapsulation.Enum.ipv4
+  optional Encapsulation.Enum encapsulation = 13;
 }
 
 // Port specific configurations.

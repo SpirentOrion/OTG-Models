@@ -6,25 +6,17 @@ components:
   schemas:
     Ccl.Stage:
       description: >-
-        One stage in a multi-stage CCL test. Each stage has its own algorithm,
-        communicators, and traffic parameters. Stages are executed in stage_index
-        order. Used when Ccl.Config.stage_mode = multiple or llm.
+        One stage in a CCL test. Each stage defines its own algorithm,
+        communicators, and traffic parameters. Stages are executed in the order
+        they appear in Ccl.Config.stages[].
       type: object
       required:
         - name
-        - stage_index
       properties:
         name:
           description: Unique name for this stage within the CCL configuration.
           type: string
           x-field-uid: 1
-        stage_index:
-          description: >-
-            0-based execution order within the stage sequence. Stages are
-            executed in ascending stage_index order.
-          type: integer
-          minimum: 0
-          x-field-uid: 2
         algorithm:
           $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
           x-field-uid: 3
@@ -42,7 +34,9 @@ components:
         enable_bg_traffic:
           description: >-
             Enable background traffic streams (configured via Config.flows)
-            during this stage.
+            during this stage. In single-stage mode users control bg traffic
+            independently via SetControlState(flows). In multi-stage mode the
+            Sequencer uses this flag to start/stop flows between stages.
           type: boolean
           default: false
           x-field-uid: 6
