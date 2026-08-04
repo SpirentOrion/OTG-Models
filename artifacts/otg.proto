@@ -14817,28 +14817,42 @@ message CclTrafficParams {
   // default = 1
   optional int32 qps_per_rank = 4;
 
-  // RDMA message length in KB. Controls the size of each RDMA WRITE operation. Maps to
-  // STC CclTrafficConfigParams.RdmaMsgLength.
+  // Maximum size of each RDMA WRITE operation in KB (RC mode only). Different chunk sizes
+  // produce measurably different traffic patterns: small values (e.g. 64 KB) generate
+  // many short RDMA Writes with frequent ACKs; large values (e.g. 2 MB) generate fewer
+  // but larger bursts. Real GPU applications (GPUDirect RDMA) operate at varying message
+  // granularities, and DUT behavior differs between these scenarios. Omit or set to the
+  // default (4194304) to let the implementation auto-compute the transfer size from data_size.
   // default = 4194304
   optional int32 rdma_msg_length_kb = 5;
 
-  // Fixed GPU compute (reduce) time per iteration step in ms. Simulates compute time
-  // between network communication phases.
+  message ReduceTimeType {
+    enum Enum {
+      unspecified = 0;
+      fixed = 1;
+      random = 2;
+      none = 3;
+    }
+  }
+  // Selects how the compute (reduce) gap between iterations is specified. fixed: use
+  // reduce_time_ms as a constant gap each iteration. random: sample uniformly from [min_reduce_time_ms,
+  // max_reduce_time_ms] each iteration, simulating natural variance in GPU compute time.
+  // none: no compute gap (back-to-back stress test).
+  // default = ReduceTimeType.Enum.fixed
+  optional ReduceTimeType.Enum reduce_time_type = 13;
+
+  // Fixed GPU compute (reduce) time per iteration step in ms. Used when reduce_time_type
+  // = fixed. Simulates compute time between network communication phases.
   // default = 200
   optional int32 reduce_time_ms = 6;
 
-  // Minimum reduce time when enable_random_reduce_time = true.
+  // Minimum reduce time in ms. Used when reduce_time_type = random.
   // default = 10
   optional int32 min_reduce_time_ms = 7;
 
-  // Maximum reduce time when enable_random_reduce_time = true.
+  // Maximum reduce time in ms. Used when reduce_time_type = random.
   // default = 200
   optional int32 max_reduce_time_ms = 8;
-
-  // When true, randomize reduce time uniformly between min_reduce_time_ms and max_reduce_time_ms
-  // on each iteration.
-  // default = False
-  optional bool enable_random_reduce_time = 9;
 
   message SchedulingType {
     enum Enum {
@@ -14863,16 +14877,20 @@ message CclTrafficParams {
 // RoCEv2 transport parameters used as a global template for all QPs auto-generated
 // by the CCL engine. Only applicable when Ccl.Config.transport = rocev2; ignored for
 // transport = uet.
-// CCL auto-generates O(rankCount x qps_per_rank x algorithm_steps) QPs per communicator.
-// Unlike Device.Rocev2Peer where each QP is individually configured by the user, Ccl.Rocev2Params
-// defines shared defaults applied uniformly across all generated QPs.
+// CCL auto-generates QPs per communicator: O(N × qps_per_rank) for Ring algorithms
+// (each rank connects to 2 neighbors), up to O(N² × qps_per_rank) for AllToAll (each
+// rank connects to all N-1 peers), where N = rank count. Unlike Device.Rocev2Peer where
+// each QP is individually configured by the user, Ccl.Rocev2Params defines shared defaults
+// applied uniformly across all generated QPs.
 // dscp, ecn, pfc_priority, start_qp_number, start_udp_src_port, and transport_service_type
 // correspond conceptually to fields in Device.Rocev2Peer.Rocev2.QPParameters, but apply
 // as global defaults rather than per-QP settings. start_qp_number and start_udp_src_port
 // are base values from which the CCL engine increments sequentially across generated
 // QPs (e.g. start_qp_number=100 yields QP0=100, QP1=101, ...).
-// enable_ecn_cnp and enable_pfc are CCL-level on/off switches for DCQCN and PFC. Fine-grained
-// DCQCN algorithm tuning (alpha, rate timers) is out of CCL scope and belongs in Rocev2.PerPortSettings.dcqcn_settings.
+// enable_ecn_cnp and enable_pfc are CCL-level on/off switches for DCQCN and PFC. Note:
+// Rocev2.PerPortSettings.dcqcn_settings applies only to Device.Rocev2Peer traffic (maps
+// to Rocev2DcqcnProfile in STC); it does NOT affect CCL-generated QPs (Rocev2GenPortParams).
+// The on/off switches cover the common CCL test scenarios (DCQCN enabled vs. disabled).
 // enable_retransmit is a simplified on/off for all CCL QPs; the per-QP equivalent (Rocev2.AckAndNak.enable_retransmission_timeout)
 // also exposes timeout_value and retry_count knobs not needed at CCL level.
 // burst_per_ack, max_connections, and connection_reqs_per_sec have no equivalent in
