@@ -58,6 +58,16 @@ components:
                 x-field-uid: 12
               reorder_count:
                 x-field-uid: 13
+              l1_alg_bw:
+                x-field-uid: 14
+              l1_bus_bw:
+                x-field-uid: 15
+              reduce_time:
+                x-field-uid: 16
+              training_time:
+                x-field-uid: 17
+              trans_time:
+                x-field-uid: 18
           x-field-uid: 3
         include_tail_latency_cdf:
           description: >-
@@ -66,18 +76,22 @@ components:
           type: boolean
           default: false
           x-field-uid: 4
-        include_abnormal_iterations:
+        include_loop_metrics:
           description: >-
-            When true, include the list of abnormal iteration records in
-            each CclMetric response.
+            When true, include per-stage-loop JCT metrics in each CclMetric
+            response. Only meaningful when stage_loop_count > 1.
+            Maps to CclJctLoopResult in STC.
           type: boolean
           default: false
           x-field-uid: 5
+          x-status:
+            status: under-review
+            information: Depends on stage_loop_count which is not yet implemented.
 
     Ccl.Metric:
       description: >-
         CCL metrics for one communicator (and one stage, for multi-stage configs).
-        Includes JCT measurements, bandwidth, and optional CDF/abnormal data.
+        Includes JCT measurements, bandwidth, time breakdown, and optional CDF/stream data.
       type: object
       properties:
         communicator_name:
@@ -113,7 +127,7 @@ components:
           format: double
           x-field-uid: 7
         alg_bw:
-          description: Algorithm bandwidth = data_size / jct (Gbps).
+          description: Algorithm bandwidth = data_size / calibrated_jct (Gbps).
           type: number
           format: double
           x-field-uid: 8
@@ -149,11 +163,16 @@ components:
           type: integer
           x-field-uid: 14
         drop_count:
-          description: Total dropped packets. Acceptance criterion for lossless = 0.
+          description: >-
+            Total dropped packets across all streams for this communicator.
+            Aggregated from CclStreamResult.DropCount. Acceptance criterion
+            for lossless fabric = 0.
           type: integer
           x-field-uid: 15
         reorder_count:
-          description: Total reordered packets.
+          description: >-
+            Total reordered packets across all streams for this communicator.
+            Aggregated from CclStreamResult.ReorderCount.
           type: integer
           x-field-uid: 16
         tail_latency_cdf:
@@ -164,14 +183,138 @@ components:
           items:
             $ref: '#/components/schemas/Ccl.TailLatencyCDFBucket'
           x-field-uid: 17
-        abnormal_iterations:
+        l1_alg_bw:
           description: >-
-            List of abnormal iteration records. Populated when
-            Ccl.Metrics.Request.include_abnormal_iterations = true.
+            Layer-1 algorithm bandwidth (Gbps), calculated using the JCT basis.
+            Includes Ethernet/IP/UDP/RoCEv2 frame overhead, matching the
+            physical link utilization measured by line-rate counters.
+            Use this to compare against port line rate; use alg_bw to compare
+            against nccl-tests / GPU benchmarks (which report payload BW).
+            Maps to CclJctResult.L1AlgBwJCT.
+          type: number
+          format: double
+          x-field-uid: 19
+        l1_bus_bw:
+          description: >-
+            Layer-1 bus bandwidth (Gbps), calculated using the JCT basis.
+            L1 equivalent of bus_bw; includes frame overhead.
+            Maps to CclJctResult.L1BusBwJCT.
+          type: number
+          format: double
+          x-field-uid: 20
+        reduce_time:
+          description: >-
+            Total GPU compute (reduce) time accumulated across all iterations
+            (seconds). Represents time ranks spent on local computation between
+            communication phases. Maps to CclJctResult.ReduceTime.
+          type: number
+          format: double
+          x-field-uid: 21
+        training_time:
+          description: >-
+            Total training time = communication time + reduce time (seconds).
+            Represents one full training step including both compute and
+            collective communication. Maps to CclJctResult.TrainingTime.
+          type: number
+          format: double
+          x-field-uid: 22
+        trans_time:
+          description: >-
+            Total pure transmission time (seconds), excluding compute gaps.
+            Maps to CclJctResult.TransTime.
+          type: number
+          format: double
+          x-field-uid: 23
+        loop_metrics:
+          description: >-
+            Per-stage-loop JCT breakdown. Populated when
+            Ccl.Metrics.Request.include_loop_metrics = true and
+            stage_loop_count > 1. Each entry is one complete pass through
+            all stages. Maps to CclJctLoopResult in STC.
           type: array
           items:
-            $ref: '#/components/schemas/Ccl.AbnormalIterationMetric'
-          x-field-uid: 18
+            $ref: '#/components/schemas/Ccl.LoopMetric'
+          x-field-uid: 24
+          x-status:
+            status: under-review
+            information: Depends on stage_loop_count which is not yet implemented.
+
+    Ccl.LoopMetric:
+      description: >-
+        JCT and bandwidth metrics for one stage-loop iteration.
+        One entry per completed pass through the full stage sequence.
+        Only populated when stage_loop_count > 1 and
+        include_loop_metrics = true in the metrics request.
+        Maps to CclJctLoopResult in STC.
+      type: object
+      properties:
+        stage_loop:
+          description: 1-based stage loop index.
+          type: integer
+          x-field-uid: 1
+        jct:
+          description: Measured JCT for this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 2
+        calibrated_jct:
+          description: Calibrated JCT for this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 3
+        ideal_jct:
+          description: Ideal JCT for this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 4
+        jct_percent:
+          description: calibrated_jct / ideal_jct * 100 for this loop.
+          type: number
+          format: double
+          x-field-uid: 5
+        alg_bw:
+          description: Algorithm bandwidth for this loop (Gbps).
+          type: number
+          format: double
+          x-field-uid: 6
+        bus_bw:
+          description: Bus bandwidth for this loop (Gbps).
+          type: number
+          format: double
+          x-field-uid: 7
+        l1_alg_bw:
+          description: Layer-1 algorithm bandwidth for this loop (Gbps).
+          type: number
+          format: double
+          x-field-uid: 8
+        l1_bus_bw:
+          description: Layer-1 bus bandwidth for this loop (Gbps).
+          type: number
+          format: double
+          x-field-uid: 9
+        avg_jct:
+          description: Average JCT across iterations in this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 10
+        max_jct:
+          description: Maximum JCT across iterations in this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 11
+        min_jct:
+          description: Minimum JCT across iterations in this loop (seconds).
+          type: number
+          format: double
+          x-field-uid: 12
+        max_tail_latency_us:
+          description: Maximum tail latency across all ranks in this loop (µs).
+          type: integer
+          x-field-uid: 13
+        iteration_count:
+          description: Number of completed iterations in this loop.
+          type: integer
+          x-field-uid: 14
 
     Ccl.TailLatencyCDFBucket:
       description: One bucket in the tail latency CDF distribution.
@@ -182,60 +325,14 @@ components:
           type: number
           format: double
           x-field-uid: 1
-        transmission_time_us:
-          description: Transmission time at this cumulative percentile (microseconds).
+        transmission_time_percent:
+          description: >-
+            Transmission time at this cumulative percentile expressed as a
+            percentage of the ideal transmission time based on line rate.
+            Maps to CclTailLatencyCDFResult.TransmissionTimePercent in STC.
+            Values above 100% indicate congestion or retransmission overhead.
           type: number
           format: double
           x-field-uid: 2
-        count:
-          description: Number of streams falling in this bucket.
-          type: integer
-          x-field-uid: 3
 
-    Ccl.AbnormalIterationMetric:
-      description: >-
-        Record for one abnormal iteration that exceeded the configured thresholds
-        in Ccl.AbnormalThreshold.
-      type: object
-      properties:
-        iteration:
-          description: 1-based iteration index that was flagged as abnormal.
-          type: integer
-          x-field-uid: 1
-        stage_index:
-          description: Stage index this abnormal iteration belongs to (-1 for single-stage).
-          type: integer
-          x-field-uid: 2
-        is_complete:
-          description: Whether the iteration completed (false = timed out or aborted).
-          type: boolean
-          x-field-uid: 3
-        failure_reason:
-          description: Human-readable description of why this iteration was flagged.
-          type: string
-          x-field-uid: 4
-        jct_percent:
-          description: calibrated_jct / ideal_jct * 100 for this iteration.
-          type: number
-          format: double
-          x-field-uid: 5
-        drop_count:
-          description: Packet drops in this iteration.
-          type: integer
-          x-field-uid: 6
-        reorder_count:
-          description: Packet reorders in this iteration.
-          type: integer
-          x-field-uid: 7
-        rx_cnp_count:
-          description: CNP (Congestion Notification Packet) frames received in this iteration.
-          type: integer
-          x-field-uid: 8
-        rx_ecn_count:
-          description: ECN-marked frames received in this iteration.
-          type: integer
-          x-field-uid: 9
-        rx_pfc_count:
-          description: PFC pause frames received in this iteration.
-          type: integer
-          x-field-uid: 10
+

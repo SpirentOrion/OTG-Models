@@ -17,8 +17,14 @@ components:
           minimum: 1
           x-field-uid: 1
         data_size_unit:
-          description: Unit for data_size.
+          description: >-
+            Unit for data_size. gigabit/megabit/kilobyte are bit-based;
+            gigabyte/megabyte are byte-based (1 gigabyte = 8 gigabit).
+            Use gigabit to match typical AI fabric bandwidth benchmarks
+            (e.g. 400 Gb/s line rate); use gigabyte to match GPU memory
+            transfer conventions (e.g. model weights in GB).
           type: string
+          default: gigabit
           x-field-uid: 2
           x-enum:
             gigabit:
@@ -31,102 +37,195 @@ components:
               x-field-uid: 4
             kilobyte:
               x-field-uid: 5
-        frame_size:
+        ib_mtu:
           description: >-
-            L1 frame size in bytes. RoCEv2 per-packet overhead is 90B
-            (14B Ethernet + 20B IP + 8B UDP + 12B BTH + 4B ICRC + 4B FCS +
-            28B preamble/IFG). Recommended values:
-            IB MTU 1024 -> frame_size = 1114 (1024 + 90B);
-            IB MTU 4096 -> frame_size = 4186 (4096 + 90B) — optimal for large
-            transfers. Maps to STC CclTrafficConfigParams.FrameSize with
-            FrameSizeType=L1FRAMESIZE.
+            InfiniBand MTU in bytes — the RDMA payload size per packet.
+            Standard values: 256, 512, 1024, 2048, 4096.
+            Use 4096 for large transfers (AllReduce, AllToAll) to maximise
+            link efficiency; use 1024 for MTU sensitivity testing.
+            Aligns with Device.Rocev2.ib_mtu.
           type: integer
-          default: 4186
-          minimum: 90
-          maximum: 16383
+          default: 4096
+          minimum: 256
+          maximum: 4096
           x-field-uid: 3
-        qps_per_rank:
+        qps_per_peer:
           description: >-
-            Number of QPs between each rank pair. Increasing this value enables
-            ECMP multi-path utilization.
+            Number of QPs established between each communicating rank pair.
+            Each QP uses a distinct UDP source port, producing a unique 5-tuple
+            that hashes to a different ECMP path. Set to the number of parallel
+            fabric paths available between ranks to fully utilize fabric bandwidth.
           type: integer
           default: 1
           minimum: 1
           maximum: 65535
           x-field-uid: 4
-        rdma_msg_length_kb:
+        chunk_size_kb:
+          x-status:
+            status: under-review
+            information: Not yet mapped to a backend parameter. Requires setting Rocev2GenPortParams.RdmaMsgLength in ccl.go.
           description: >-
-            Maximum size of each RDMA WRITE operation in KB (RC mode only).
-            Different chunk sizes produce measurably different traffic patterns:
-            small values (e.g. 64 KB) generate many short RDMA Writes with
-            frequent ACKs; large values (e.g. 2 MB) generate fewer but larger
-            bursts. Real GPU applications (GPUDirect RDMA) operate at varying
-            message granularities, and DUT behavior differs between these
-            scenarios. Omit or set to the default (4194304) to let the
-            implementation auto-compute the transfer size from data_size.
+            Size of each RDMA WRITE operation in KB (RC mode only).
+            The total data_size is divided into chunks of this size; each chunk
+            is sent as one RDMA WRITE. Chunk size directly shapes the traffic
+            pattern: small values (e.g. 64 KB) produce many short RDMA Writes
+            with frequent ACKs; large values (e.g. 2 MB) produce fewer but
+            larger bursts. Real GPU collective operations (GPUDirect RDMA)
+            send data at varying granularities, and DUT behavior — buffer
+            occupancy, ECN marking frequency, PFC trigger rate — differs
+            measurably between chunk sizes.
+            When omitted, the implementation auto-computes the chunk size
+            from data_size (equivalent to no chunking limit).
           type: integer
           default: 4194304
           minimum: 1
           maximum: 4194304
           x-field-uid: 5
-        reduce_time_type:
+        compute_gap:
           description: >-
-            Selects how the compute (reduce) gap between iterations is specified.
-            fixed: use reduce_time_ms as a constant gap each iteration.
-            random: sample uniformly from [min_reduce_time_ms, max_reduce_time_ms]
-            each iteration, simulating natural variance in GPU compute time.
-            none: no compute gap (back-to-back stress test).
+            GPU compute (reduce) gap inserted between successive collective
+            iterations. Simulates time ranks spend on local computation between
+            communication phases. When omitted, no gap is inserted (equivalent
+            to back-to-back stress test with fixed.ms = 0).
+            Mirrors the Flow.Duration discriminated union pattern.
+          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap'
+          x-field-uid: 15
+        qp_scheduling:
+          x-status:
+            status: under-review
+            information: Not yet mapped to a backend parameter.
+          description: >-
+            Controls how the traffic generator interleaves multiple QP flows
+            on a shared port: how much each QP transmits in one scheduling
+            turn before the next QP gets its turn. Affects per-ECMP-path
+            burst size and how readily ECN or PFC is triggered on the DUT.
+            Mirrors the Flow.Duration discriminated union pattern.
+          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling'
+          x-field-uid: 10
+
+    Ccl.TrafficParams.ComputeGap:
+      description: >-
+        Discriminated union for the GPU compute (reduce) gap between iterations.
+        fixed: constant gap of fixed.ms milliseconds each iteration.
+        random: gap sampled uniformly from [min_ms, max_ms] per iteration,
+        simulating natural variance in GPU compute time across iterations.
+        Omit this field entirely for back-to-back stress testing (no gap).
+      type: object
+      properties:
+        choice:
           type: string
           default: fixed
-          x-field-uid: 13
+          x-field-uid: 1
           x-enum:
             fixed:
               x-field-uid: 1
             random:
               x-field-uid: 2
-            none:
-              x-field-uid: 3
-        reduce_time_ms:
-          description: >-
-            Fixed GPU compute (reduce) time per iteration step in ms.
-            Used when reduce_time_type = fixed.
-            Simulates compute time between network communication phases.
+        fixed:
+          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap.Fixed'
+          x-field-uid: 2
+        random:
+          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap.Random'
+          x-field-uid: 3
+
+    Ccl.TrafficParams.ComputeGap.Fixed:
+      description: >-
+        Constant compute gap applied at every iteration.
+        Set ms = 0 for back-to-back stress testing with no compute phase.
+      type: object
+      properties:
+        ms:
+          description: Compute gap duration in milliseconds.
           type: integer
           default: 200
           minimum: 0
-          x-field-uid: 6
-        min_reduce_time_ms:
-          description: Minimum reduce time in ms. Used when reduce_time_type = random.
+          x-field-uid: 1
+
+    Ccl.TrafficParams.ComputeGap.Random:
+      description: >-
+        Compute gap sampled uniformly from [min_ms, max_ms] at each iteration.
+        Use this to model natural variance in GPU compute time, producing more
+        realistic jitter in the collective communication pattern.
+      type: object
+      properties:
+        min_ms:
+          description: Minimum compute gap in milliseconds.
           type: integer
           default: 10
           minimum: 0
-          x-field-uid: 7
-        max_reduce_time_ms:
-          description: Maximum reduce time in ms. Used when reduce_time_type = random.
+          x-field-uid: 1
+        max_ms:
+          description: Maximum compute gap in milliseconds.
           type: integer
           default: 200
           minimum: 0
-          x-field-uid: 8
-        scheduling_type:
-          description: >-
-            frame_count: schedule N frames per flow per round-robin cycle.
-            data_size: schedule by data volume per flow per round-robin cycle.
+          x-field-uid: 2
+
+    Ccl.TrafficParams.QpScheduling:
+      description: >-
+        Discriminated union for per-QP transmission scheduling.
+        continuous: each QP completes one full RDMA Write before yielding;
+        no interruption mid-message (default; closest to real GPU behavior).
+        data_size: each QP sends a fixed byte volume per turn then yields.
+        frame_count: each QP sends a fixed number of frames per turn then yields.
+      type: object
+      properties:
+        choice:
           type: string
-          x-field-uid: 10
+          default: continuous
+          x-field-uid: 1
           x-enum:
-            frame_count:
+            continuous:
               x-field-uid: 1
             data_size:
               x-field-uid: 2
-        scheduling_data_size_kb:
-          description: >-
-            Data volume per flow per round-robin cycle in KB.
-            Used only when scheduling_type = data_size.
+            frame_count:
+              x-field-uid: 3
+        continuous:
+          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.Continuous'
+          x-field-uid: 2
+        data_size:
+          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.DataSize'
+          x-field-uid: 3
+        frame_count:
+          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.FrameCount'
+          x-field-uid: 4
+
+    Ccl.TrafficParams.QpScheduling.Continuous:
+      description: >-
+        Each QP completes one full RDMA Write operation before yielding to
+        the next QP. The scheduling quantum equals rdma_msg_length_kb; no
+        other QP is interleaved within a single RDMA Write.
+        This is the default mode and most closely approximates real GPU
+        behavior: GPUDirect RDMA issues data in complete message-sized chunks
+        without mid-message interleaving from other QPs.
+      type: object
+
+    Ccl.TrafficParams.QpScheduling.DataSize:
+      description: >-
+        Each QP sends a fixed volume of data per scheduling turn before
+        yielding. Larger values produce bigger per-ECMP-path bursts, more
+        likely to trigger ECN marking; smaller values distribute load more
+        finely across paths and reduce per-path congestion risk.
+      type: object
+      properties:
+        size_kb:
+          description: Data volume per QP per scheduling turn in KB.
           type: integer
           default: 128
           minimum: 1
-          x-field-uid: 11
-        rocev2:
-          description: RoCEv2-specific parameters. Only applicable when transport = rocev2.
-          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Params'
-          x-field-uid: 12
+          x-field-uid: 1
+
+    Ccl.TrafficParams.QpScheduling.FrameCount:
+      description: >-
+        Each QP sends a fixed number of frames per scheduling turn before
+        yielding. Packet-fair across QPs; useful for testing fine-grained
+        ECMP load distribution where each path receives equal packet count.
+      type: object
+      properties:
+        count:
+          description: Number of frames per QP per scheduling turn.
+          type: integer
+          default: 1
+          minimum: 1
+          x-field-uid: 1

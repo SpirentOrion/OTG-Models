@@ -26,7 +26,9 @@ components:
           description: >-
             Underlying transport type for CCL traffic.
             rocev2: RoCEv2 QP-based transport (production AI Fabric).
-            uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
+            uet: Ultra Ethernet Transport (UEC v1.0, 2024+). Under review — UET
+            transport is defined in the model but not yet implemented in the
+            traffic generator backend.
           type: string
           x-field-uid: 2
           x-enum:
@@ -46,34 +48,46 @@ components:
               x-field-uid: 1
             sync:
               x-field-uid: 2
-        sync_send_interval:
+        sync_rank_interval_ms:
           description: >-
-            Interval between ports in sync send mode (ms). Only effective
-            when send_mode = sync.
+            Interval between consecutive rank starts in sync send mode (ms).
+            Rank 0 starts first; each subsequent rank (in device_names order)
+            waits an additional interval before starting its traffic.
+            Only effective when send_mode = sync.
+            STC native: SyncSendInterval (unit: 64µs; ccl.go converts ms × 1000 / 64).
           type: integer
           default: 0
           minimum: 0
           x-field-uid: 5
+          x-status:
+            status: under-review
+            information: Not yet mapped to a backend parameter. STC native unit is 64µs; requires ms-to-64µs conversion in ccl.go.
         stage_mode:
           description: >-
-            default: standard sequential stage execution.
+            sequential: stages are executed in array order; each stage starts
+            only after all communicators in the previous stage have completed.
             llm: LLM-specific multi-phase mode (Prefill/Decode etc.); enables
-            LLM-aware Sequencer behavior in the backend.
+            LLM-aware Sequencer behavior in the backend. Under review — llm
+            mode is defined in the model but not yet implemented.
           type: string
           x-field-uid: 6
           x-enum:
-            default:
+            sequential:
               x-field-uid: 1
             llm:
               x-field-uid: 3
         stage_loop_count:
           description: >-
-            Number of times to repeat the full stage sequence (all stages = one
-            loop). Ignored when stages contains only one entry.
+            Number of times to repeat the full stage sequence.
+            One loop = one complete pass through all stages in order.
+            The default value of 1 means the sequence runs once with no repetition.
           type: integer
           default: 1
           minimum: 1
           x-field-uid: 7
+          x-status:
+            status: under-review
+            information: Requires multi-stage support which is not yet implemented.
         stages:
           description: >-
             Ordered list of stages. Each stage defines its own algorithm,

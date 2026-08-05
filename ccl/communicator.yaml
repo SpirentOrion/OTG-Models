@@ -32,3 +32,32 @@ components:
           x-constraint:
             - '/components/schemas/Device/properties/name'
           x-field-uid: 2
+        algorithm:
+          description: >-
+            Per-communicator algorithm override. When set, this communicator uses
+            the specified algorithm and phase instead of the stage-level default.
+            Use this when different communicators in the same stage run different
+            collective operations simultaneously (e.g., TP group uses ring_allreduce
+            while EP group uses all_to_all_direct).
+            When not set, the communicator inherits stage.algorithm.
+          $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
+          x-field-uid: 3
+          x-status:
+            status: under-review
+            information: Per-communicator algorithm override is not yet implemented in the backend.
+        traffic_params:
+          description: >-
+            Traffic generation parameters for this communicator.
+            Different communicators in the same stage may carry different data
+            volumes and QP counts (e.g., TP group vs EP group), so traffic
+            parameters are configured per communicator.
+          $ref: './traffic_params.yaml#/components/schemas/Ccl.TrafficParams'
+          x-field-uid: 4
+        rocev2:
+          description: >-
+            RoCEv2 port-level parameters applied to all ports listed in device_names.
+            Only applicable when transport = rocev2.
+            These settings (DSCP, PFC, ECN, connection pacing) are port-scope
+            and shared across all QPs auto-generated for this communicator.
+          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Params'
+          x-field-uid: 5
