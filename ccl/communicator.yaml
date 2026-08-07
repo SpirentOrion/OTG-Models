@@ -55,9 +55,9 @@ components:
           x-field-uid: 4
         rocev2:
           description: >-
-            RoCEv2 port-level parameters applied to all ports listed in device_names.
-            Only applicable when transport = rocev2.
-            These settings (DSCP, PFC, ECN, connection pacing) are port-scope
-            and shared across all QPs auto-generated for this communicator.
-          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Params'
+            RoCEv2 transport parameters applied as a shared template to all QPs
+            auto-generated for this communicator. Only applicable when transport = rocev2.
+            All ranks share the same encapsulation and connection-type settings
+            to ensure PFC coherence across the communicator.
+          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Template'
           x-field-uid: 5

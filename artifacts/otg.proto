@@ -14635,7 +14635,8 @@ message CclConfig {
     }
   }
   // Underlying transport type for CCL traffic. rocev2: RoCEv2 QP-based transport (production
-  // AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
+  // AI Fabric). uet: Ultra Ethernet Transport (UEC v1.0, 2024+). Under review — UET transport
+  // is defined in the model but not yet implemented in the traffic generator backend.
   optional Transport.Enum transport = 2;
 
   message SendMode {
@@ -14649,23 +14650,34 @@ message CclConfig {
   // sync: each iteration waits for all ranks to complete before proceeding.
   optional SendMode.Enum send_mode = 4;
 
-  // Interval between ports in sync send mode (ms). Only effective when send_mode = sync.
+  // Under Review: Not yet mapped to a backend parameter. STC native unit is 64µs; requires
+  // ms-to-64µs conversion in ccl.go.
+  // 
+  // Interval between consecutive rank starts in sync send mode (ms). Rank 0 starts first;
+  // each subsequent rank (in device_names order) waits an additional interval before
+  // starting its traffic. Only effective when send_mode = sync. STC native: SyncSendInterval
+  // (unit: 64µs; ccl.go converts ms × 1000 / 64).
   // default = 0
-  optional int32 sync_send_interval = 5;
+  optional int32 sync_rank_interval_ms = 5;
 
   message StageMode {
     enum Enum {
       unspecified = 0;
-      default = 1;
+      sequential = 1;
       llm = 3;
     }
   }
-  // default: standard sequential stage execution. llm: LLM-specific multi-phase mode
-  // (Prefill/Decode etc.); enables LLM-aware Sequencer behavior in the backend.
+  // sequential: stages are executed in array order; each stage starts only after all
+  // communicators in the previous stage have completed. llm: LLM-specific multi-phase
+  // mode (Prefill/Decode etc.); enables LLM-aware Sequencer behavior in the backend.
+  // Under review — llm mode is defined in the model but not yet implemented.
   optional StageMode.Enum stage_mode = 6;
 
-  // Number of times to repeat the full stage sequence (all stages = one loop). Ignored
-  // when stages contains only one entry.
+  // Under Review: Requires multi-stage support which is not yet implemented.
+  // 
+  // Number of times to repeat the full stage sequence. One loop = one complete pass through
+  // all stages in order. The default value of 1 means the sequence runs once with no
+  // repetition.
   // default = 1
   optional int32 stage_loop_count = 7;
 
@@ -14674,33 +14686,94 @@ message CclConfig {
   repeated CclStage stages = 14;
 }
 
-// One stage in a CCL test. Each stage defines its own algorithm, communicators, and
-// traffic parameters. Stages are executed in the order they appear in Ccl.Config.stages[].
+// One stage in a CCL test. Each stage defines its own algorithm, communicators, traffic
+// parameters, and run control. Stages are executed in the order they appear in Ccl.Config.stages[].
 message CclStage {
 
   // Unique name for this stage within the CCL configuration.
   // required = true
   optional string name = 1;
 
-  // Description missing in models
+  // Default algorithm applied to all communicators in this stage. Individual communicators
+  // may override this via their own algorithm field.
   CclAlgorithm algorithm = 3;
 
-  // List of communicators for this stage. Each communicator defines the set of ranks
-  // participating in the collective operation.
+  // List of communicators for this stage. All communicators in a stage run in parallel.
+  // Each communicator defines the set of ranks participating in one collective operation
+  // and may override the stage-level algorithm via its own algorithm field (e.g. TP group
+  // runs ring_allreduce while EP group runs all_to_all_direct simultaneously).
   repeated CclCommunicator communicators = 4;
 
-  // Description missing in models
-  CclTrafficParams traffic_params = 5;
+  // Under Review: Background flow binding per stage is not yet implemented. Requires
+  // mapping to CclStageData.BgStreamBlockConfigEnabled and AffiliatedBgStreamBlock relation
+  // in the backend.
+  // 
+  // Names of flows (from Config.flows) to activate as background traffic during this
+  // stage. The Sequencer starts these flows when the stage begins and stops them when
+  // the stage ends. An empty list means no background traffic runs during this stage.
+  // In single-stage mode, background flows can be controlled directly via SetControlState
+  // instead of this field.
+  // 
+  // x-constraint:
+  // - /components/schemas/Flow/properties/name
+  // 
+  repeated string bg_flow_names = 12;
 
-  // Enable background traffic streams (configured via Config.flows) during this stage.
-  // In single-stage mode users control bg traffic independently via SetControlState(flows).
-  // In multi-stage mode the Sequencer uses this flag to start/stop flows between stages.
-  // default = False
-  optional bool enable_bg_traffic = 6;
+  // Run control for this stage. Specifies whether to stop after a fixed number of collective
+  // operation iterations or after a fixed wall-clock duration.
+  CclStageDuration duration = 11;
 }
 
-// CCL collective algorithm configuration. Selects the algorithm type, phase isolation,
-// and iteration/duration run mode.
+// Discriminated union for CCL stage run control. Mirrors the Flow.Duration pattern
+// used by OTG traffic flows.
+message CclStageDuration {
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      fixed_iterations = 1;
+      fixed_seconds = 2;
+    }
+  }
+  // fixed_iterations: stop after count collective operation iterations. fixed_seconds:
+  // stop after the specified wall-clock duration.
+  // default = Choice.Enum.fixed_iterations
+  optional Choice.Enum choice = 1;
+
+  // Description missing in models
+  CclStageFixedIterations fixed_iterations = 2;
+
+  // Description missing in models
+  CclStageFixedSeconds fixed_seconds = 3;
+}
+
+// Run the stage for a fixed number of collective operation iterations. One iteration
+// = one complete collective communication round (e.g. one AllReduce) across all ranks
+// in the communicator.
+message CclStageFixedIterations {
+
+  // Number of collective operation iterations to run.
+  // default = 10
+  optional int32 count = 1;
+
+  // Wait time between consecutive iterations in ms. Simulates the inter-iteration gap
+  // (e.g. pipeline stall or scheduling overhead) between successive collective rounds.
+  // default = 1000
+  optional int32 interval_ms = 2;
+}
+
+// Run the stage for a fixed wall-clock duration, then stop. The number of completed
+// iterations may vary depending on traffic conditions and DUT behavior.
+message CclStageFixedSeconds {
+
+  // Wall-clock duration in seconds after which the stage stops.
+  // default = 1
+  optional int32 seconds = 1;
+}
+
+// Collective algorithm selector for a communicator. Specifies which algorithm to run
+// and, for allreduce variants, which phase. Run control parameters (iteration count,
+// duration) belong to Ccl.Stage.
 message CclAlgorithm {
 
   message Choice {
@@ -14710,19 +14783,18 @@ message CclAlgorithm {
       halving_doubling = 2;
       dual_tree = 3;
       alternating_ring = 4;
-      all_to_all_with_pxn = 5;
-      all_to_all_without_pxn = 6;
+      all_to_all_via_proxy = 5;
+      all_to_all_direct = 6;
       point_to_point = 7;
-      mixed = 8;
     }
   }
-  // Algorithm selection. ring_allreduce: NCCL Ring AllReduce, most common algorithm.
-  // halving_doubling: Recursive halving-doubling, O(log N) steps. dual_tree: Dual binary
-  // tree, low latency for small data. alternating_ring: Alternating ring, reduces hot
-  // spots. all_to_all_with_pxn: Full mesh via PXN proxy, cross-node multi-GPU. all_to_all_without_pxn:
-  // Full mesh without PXN, single-node multi-GPU. point_to_point: Direct point-to-point
-  // transfer (STC 5.64+). mixed: Mixed algorithm (implementation-defined). Note: reduce_scatter
-  // and all_gather are phases of allreduce variants, not standalone algorithms. Use choice=ring_allreduce
+  // Algorithm selection. ring_allreduce: Ring AllReduce, most common algorithm. halving_doubling:
+  // Recursive halving-doubling, O(log N) steps. dual_tree: Dual binary tree, low latency
+  // for small data. alternating_ring: Alternating ring, reduces hot spots. all_to_all_via_proxy:
+  // Full mesh AllToAll routed via a high-speed proxy interconnect between nodes. all_to_all_direct:
+  // Full mesh AllToAll with direct peer-to-peer connections, no proxy. point_to_point:
+  // Direct point-to-point transfer between two ranks. Note: reduce_scatter and all_gather
+  // are phases of allreduce variants, not standalone algorithms. Use choice=ring_allreduce
   // (or other allreduce variants) with phase=reduce_scatter / phase=all_gather.
   optional Choice.Enum choice = 1;
 
@@ -14738,28 +14810,6 @@ message CclAlgorithm {
   // dual_tree, alternating_ring). allreduce: full ReduceScatter + AllGather (default).
   // reduce_scatter: only the scatter phase. all_gather: only the gather phase.
   optional Phase.Enum phase = 2;
-
-  // Number of algorithm iterations to run (used when run_mode = iteration).
-  // default = 10
-  optional int32 iteration_count = 3;
-
-  // Wait time between consecutive iterations (ms).
-  // default = 1000
-  optional int32 iteration_interval_ms = 4;
-
-  message RunMode {
-    enum Enum {
-      unspecified = 0;
-      iteration = 1;
-      duration = 2;
-    }
-  }
-  // iteration: run for a fixed iteration_count. duration: run for duration_sec seconds.
-  optional RunMode.Enum run_mode = 5;
-
-  // Test duration in seconds. Used when run_mode = duration.
-  // default = 1
-  optional int32 duration_sec = 6;
 }
 
 // A communicator defines the set of devices (ranks) participating in one collective
@@ -14781,6 +14831,26 @@ message CclCommunicator {
   // - /components/schemas/Device/properties/name
   // 
   repeated string device_names = 2;
+
+  // Under Review: Per-communicator algorithm override is not yet implemented in the backend.
+  // 
+  // Per-communicator algorithm override. When set, this communicator uses the specified
+  // algorithm and phase instead of the stage-level default. Use this when different communicators
+  // in the same stage run different collective operations simultaneously (e.g., TP group
+  // uses ring_allreduce while EP group uses all_to_all_direct). When not set, the communicator
+  // inherits stage.algorithm.
+  CclAlgorithm algorithm = 3;
+
+  // Traffic generation parameters for this communicator. Different communicators in the
+  // same stage may carry different data volumes and QP counts (e.g., TP group vs EP group),
+  // so traffic parameters are configured per communicator.
+  CclTrafficParams traffic_params = 4;
+
+  // RoCEv2 transport parameters applied as a shared template to all QPs auto-generated
+  // for this communicator. Only applicable when transport = rocev2. All ranks share the
+  // same encapsulation and connection-type settings to ensure PFC coherence across the
+  // communicator.
+  CclRocev2Template rocev2 = 5;
 }
 
 // Traffic generation parameters for a CCL stage or single-stage config. Controls data
@@ -14801,112 +14871,235 @@ message CclTrafficParams {
       kilobyte = 5;
     }
   }
-  // Unit for data_size.
+  // Unit for data_size. gigabit/megabit/kilobyte are bit-based; gigabyte/megabyte are
+  // byte-based (1 gigabyte = 8 gigabit). Use gigabit to match typical AI fabric bandwidth
+  // benchmarks (e.g. 400 Gb/s line rate); use gigabyte to match GPU memory transfer conventions
+  // (e.g. model weights in GB).
+  // default = DataSizeUnit.Enum.gigabit
   optional DataSizeUnit.Enum data_size_unit = 2;
 
-  // L1 frame size in bytes. RoCEv2 per-packet overhead is 90B (14B Ethernet + 20B IP
-  // + 8B UDP + 12B BTH + 4B ICRC + 4B FCS + 28B preamble/IFG). Recommended values: IB
-  // MTU 1024 -> frame_size = 1114 (1024 + 90B); IB MTU 4096 -> frame_size = 4186 (4096
-  // + 90B) — optimal for large transfers. Maps to STC CclTrafficConfigParams.FrameSize
-  // with FrameSizeType=L1FRAMESIZE.
-  // default = 4186
-  optional int32 frame_size = 3;
+  // InfiniBand MTU in bytes — the RDMA payload size per packet. Standard values: 256,
+  // 512, 1024, 2048, 4096. Use 4096 for large transfers (AllReduce, AllToAll) to maximise
+  // link efficiency; use 1024 for MTU sensitivity testing. Aligns with Device.Rocev2.ib_mtu.
+  // default = 4096
+  optional int32 ib_mtu = 3;
 
-  // Number of QPs between each rank pair. Increasing this value enables ECMP multi-path
-  // utilization.
+  // Number of QPs established between each communicating rank pair. Each QP uses a distinct
+  // UDP source port, producing a unique 5-tuple that hashes to a different ECMP path.
+  // Set to the number of parallel fabric paths available between ranks to fully utilize
+  // fabric bandwidth.
   // default = 1
-  optional int32 qps_per_rank = 4;
+  optional int32 qps_per_peer = 4;
 
-  // Maximum size of each RDMA WRITE operation in KB (RC mode only). Different chunk sizes
-  // produce measurably different traffic patterns: small values (e.g. 64 KB) generate
-  // many short RDMA Writes with frequent ACKs; large values (e.g. 2 MB) generate fewer
-  // but larger bursts. Real GPU applications (GPUDirect RDMA) operate at varying message
-  // granularities, and DUT behavior differs between these scenarios. Omit or set to the
-  // default (4194304) to let the implementation auto-compute the transfer size from data_size.
+  // Under Review: Not yet mapped to a backend parameter. Requires setting Rocev2GenPortParams.RdmaMsgLength
+  // in ccl.go.
+  // 
+  // Size of each RDMA WRITE operation in KB (RC mode only). The total data_size is divided
+  // into chunks of this size; each chunk is sent as one RDMA WRITE. Chunk size directly
+  // shapes the traffic pattern: small values (e.g. 64 KB) produce many short RDMA Writes
+  // with frequent ACKs; large values (e.g. 2 MB) produce fewer but larger bursts. Real
+  // GPU collective operations (GPUDirect RDMA) send data at varying granularities, and
+  // DUT behavior — buffer occupancy, ECN marking frequency, PFC trigger rate — differs
+  // measurably between chunk sizes. When omitted, the implementation auto-computes the
+  // chunk size from data_size (equivalent to no chunking limit).
   // default = 4194304
-  optional int32 rdma_msg_length_kb = 5;
+  optional int32 chunk_size_kb = 5;
 
-  message ReduceTimeType {
+  // GPU compute (reduce) gap inserted between successive collective iterations. Simulates
+  // time ranks spend on local computation between communication phases. When omitted,
+  // no gap is inserted (equivalent to back-to-back stress test with fixed.ms = 0). Mirrors
+  // the Flow.Duration discriminated union pattern.
+  CclTrafficParamsComputeGap compute_gap = 15;
+
+  // Under Review: Not yet mapped to a backend parameter.
+  // 
+  // Controls how the traffic generator interleaves multiple QP flows on a shared port:
+  // how much each QP transmits in one scheduling turn before the next QP gets its turn.
+  // Affects per-ECMP-path burst size and how readily ECN or PFC is triggered on the DUT.
+  // Mirrors the Flow.Duration discriminated union pattern.
+  CclTrafficParamsQpScheduling qp_scheduling = 10;
+}
+
+// Discriminated union for the GPU compute (reduce) gap between iterations. fixed: constant
+// gap of fixed.ms milliseconds each iteration. random: gap sampled uniformly from [min_ms,
+// max_ms] per iteration, simulating natural variance in GPU compute time across iterations.
+// Omit this field entirely for back-to-back stress testing (no gap).
+message CclTrafficParamsComputeGap {
+
+  message Choice {
     enum Enum {
       unspecified = 0;
       fixed = 1;
       random = 2;
-      none = 3;
     }
   }
-  // Selects how the compute (reduce) gap between iterations is specified. fixed: use
-  // reduce_time_ms as a constant gap each iteration. random: sample uniformly from [min_reduce_time_ms,
-  // max_reduce_time_ms] each iteration, simulating natural variance in GPU compute time.
-  // none: no compute gap (back-to-back stress test).
-  // default = ReduceTimeType.Enum.fixed
-  optional ReduceTimeType.Enum reduce_time_type = 13;
+  // Description missing in models
+  // default = Choice.Enum.fixed
+  optional Choice.Enum choice = 1;
 
-  // Fixed GPU compute (reduce) time per iteration step in ms. Used when reduce_time_type
-  // = fixed. Simulates compute time between network communication phases.
-  // default = 200
-  optional int32 reduce_time_ms = 6;
+  // Description missing in models
+  CclTrafficParamsComputeGapFixed fixed = 2;
 
-  // Minimum reduce time in ms. Used when reduce_time_type = random.
-  // default = 10
-  optional int32 min_reduce_time_ms = 7;
-
-  // Maximum reduce time in ms. Used when reduce_time_type = random.
-  // default = 200
-  optional int32 max_reduce_time_ms = 8;
-
-  message SchedulingType {
-    enum Enum {
-      unspecified = 0;
-      frame_count = 1;
-      data_size = 2;
-    }
-  }
-  // frame_count: schedule N frames per flow per round-robin cycle. data_size: schedule
-  // by data volume per flow per round-robin cycle.
-  optional SchedulingType.Enum scheduling_type = 10;
-
-  // Data volume per flow per round-robin cycle in KB. Used only when scheduling_type
-  // = data_size.
-  // default = 128
-  optional int32 scheduling_data_size_kb = 11;
-
-  // RoCEv2-specific parameters. Only applicable when transport = rocev2.
-  CclRocev2Params rocev2 = 12;
+  // Description missing in models
+  CclTrafficParamsComputeGapRandom random = 3;
 }
 
-// RoCEv2 transport parameters used as a global template for all QPs auto-generated
+// Constant compute gap applied at every iteration. Set ms = 0 for back-to-back stress
+// testing with no compute phase.
+message CclTrafficParamsComputeGapFixed {
+
+  // Compute gap duration in milliseconds.
+  // default = 200
+  optional int32 ms = 1;
+}
+
+// Compute gap sampled uniformly from [min_ms, max_ms] at each iteration. Use this to
+// model natural variance in GPU compute time, producing more realistic jitter in the
+// collective communication pattern.
+message CclTrafficParamsComputeGapRandom {
+
+  // Minimum compute gap in milliseconds.
+  // default = 10
+  optional int32 min_ms = 1;
+
+  // Maximum compute gap in milliseconds.
+  // default = 200
+  optional int32 max_ms = 2;
+}
+
+// Discriminated union for per-QP transmission scheduling. continuous: each QP completes
+// one full RDMA Write before yielding; no interruption mid-message (default; closest
+// to real GPU behavior). data_size: each QP sends a fixed byte volume per turn then
+// yields. frame_count: each QP sends a fixed number of frames per turn then yields.
+message CclTrafficParamsQpScheduling {
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      continuous = 1;
+      data_size = 2;
+      frame_count = 3;
+    }
+  }
+  // Description missing in models
+  // default = Choice.Enum.continuous
+  optional Choice.Enum choice = 1;
+
+  // Description missing in models
+  CclTrafficParamsQpSchedulingContinuous continuous = 2;
+
+  // Description missing in models
+  CclTrafficParamsQpSchedulingDataSize data_size = 3;
+
+  // Description missing in models
+  CclTrafficParamsQpSchedulingFrameCount frame_count = 4;
+}
+
+// Each QP completes one full RDMA Write operation before yielding to the next QP. The
+// scheduling quantum equals rdma_msg_length_kb; no other QP is interleaved within a
+// single RDMA Write. This is the default mode and most closely approximates real GPU
+// behavior: GPUDirect RDMA issues data in complete message-sized chunks without mid-message
+// interleaving from other QPs.
+message CclTrafficParamsQpSchedulingContinuous {
+}
+
+// Each QP sends a fixed volume of data per scheduling turn before yielding. Larger
+// values produce bigger per-ECMP-path bursts, more likely to trigger ECN marking; smaller
+// values distribute load more finely across paths and reduce per-path congestion risk.
+message CclTrafficParamsQpSchedulingDataSize {
+
+  // Data volume per QP per scheduling turn in KB.
+  // default = 128
+  optional int32 size_kb = 1;
+}
+
+// Each QP sends a fixed number of frames per scheduling turn before yielding. Packet-fair
+// across QPs; useful for testing fine-grained ECMP load distribution where each path
+// receives equal packet count.
+message CclTrafficParamsQpSchedulingFrameCount {
+
+  // Number of frames per QP per scheduling turn.
+  // default = 1
+  optional int32 count = 1;
+}
+
+// RoCEv2 transport parameters applied as a shared template to all QPs auto-generated
 // by the CCL engine. Only applicable when Ccl.Config.transport = rocev2; ignored for
 // transport = uet.
-// CCL auto-generates QPs per communicator: O(N × qps_per_rank) for Ring algorithms
-// (each rank connects to 2 neighbors), up to O(N² × qps_per_rank) for AllToAll (each
-// rank connects to all N-1 peers), where N = rank count. Unlike Device.Rocev2Peer where
-// each QP is individually configured by the user, Ccl.Rocev2Params defines shared defaults
-// applied uniformly across all generated QPs.
-// dscp, ecn, pfc_priority, start_qp_number, start_udp_src_port, and transport_service_type
-// correspond conceptually to fields in Device.Rocev2Peer.Rocev2.QPParameters, but apply
-// as global defaults rather than per-QP settings. start_qp_number and start_udp_src_port
-// are base values from which the CCL engine increments sequentially across generated
-// QPs (e.g. start_qp_number=100 yields QP0=100, QP1=101, ...).
-// enable_ecn_cnp and enable_pfc are CCL-level on/off switches for DCQCN and PFC. Note:
-// Rocev2.PerPortSettings.dcqcn_settings applies only to Device.Rocev2Peer traffic (maps
-// to Rocev2DcqcnProfile in STC); it does NOT affect CCL-generated QPs (Rocev2GenPortParams).
-// The on/off switches cover the common CCL test scenarios (DCQCN enabled vs. disabled).
-// enable_retransmit is a simplified on/off for all CCL QPs; the per-QP equivalent (Rocev2.AckAndNak.enable_retransmission_timeout)
-// also exposes timeout_value and retry_count knobs not needed at CCL level.
-// burst_per_ack, max_connections, and connection_reqs_per_sec have no equivalent in
-// Device.Rocev2Peer or Rocev2.PerPortSettings. They are CCL-specific test orchestration
-// parameters: burst_per_ack paces the RC in-flight window; max_connections and connection_reqs_per_sec
-// control concurrency and rate of dynamic QP connection setup, which does not exist
-// in the static per-QP Device.Rocev2Peer model.
+// Follows the same discriminated-union pattern as Device.Rocev2.ConnectionType: connection-type-specific
+// fields (dscp, ecn, enable_ecn_cnp) are nested under the reliable_connection or unreliable_datagram
+// sub-object, while encapsulation applies to both and sits at the top level.
+// Why not reuse Device.Rocev2Peer? Three reasons. First, scale: CCL generates O(N x
+// qps_per_rank) QPs for Ring algorithms and O(N^2 x qps_per_rank) for AllToAll, where
+// N is the rank count. Statically enumerating the full QP endpoint matrix at this scale
+// is not feasible. Second, topology: the QP connectivity graph is implicitly determined
+// by the collective algorithm's communication pattern and rank mapping; it is not known
+// a priori and cannot be expressed as a static peer list. Third, lifecycle: RC QP connections
+// are established and torn down dynamically per test run. Device.Rocev2Peer models
+// static, persistent QP configurations and has no lifecycle management for dynamic
+// connections.
 // Do not configure Device.Rocev2Peer on devices referenced by Ccl.Communicator.device_names;
 // CCL manages QP lifecycle internally.
-message CclRocev2Params {
+message CclRocev2Template {
 
-  // IP DSCP value applied to all auto-generated QP data packets. All ranks in the communicator
-  // use the same DSCP value to map traffic to the DUT lossless queue (typically 24 for
-  // RoCEv2). Corresponds to Device.Rocev2Peer.Rocev2.QPParameters.dscp, which sets DSCP
-  // for one individually-configured QP. Here it is a shared template applied to all CCL-generated
-  // QPs.
+  message Encapsulation {
+    enum Enum {
+      unspecified = 0;
+      ipv4 = 1;
+      ipv6 = 2;
+    }
+  }
+  // IP encapsulation type for all auto-generated QP data packets. ipv4: standard RoCEv2
+  // over IPv4 (most common deployment). ipv6: RoCEv2 over IPv6 with Global Routing Header
+  // (GRH); requires IPv6 addresses configured on the communicator devices. Applies to
+  // both reliable_connection and unreliable_datagram.
+  // default = Encapsulation.Enum.ipv4
+  optional Encapsulation.Enum encapsulation = 1;
+
+  // QP connection type and associated parameters. Follows the same discriminated-union
+  // pattern as Device.Rocev2.ConnectionType.
+  CclRocev2TemplateConnectionType connection_type = 2;
+}
+
+// Discriminated union for QP connection type, following the same pattern as Device.Rocev2.ConnectionType.
+// reliable_connection (RC): ACK-based in-order delivery; per-QP rate control via DCQCN;
+// used for Ring AllReduce. unreliable_datagram (UD): connectionless; one QP addresses
+// multiple peers without per-pair setup; O(N) QP count vs O(N^2) for RC; used for AllToAll
+// at scale.
+message CclRocev2TemplateConnectionType {
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      reliable_connection = 1;
+      unreliable_datagram = 2;
+    }
+  }
+  // Description missing in models
+  // default = Choice.Enum.reliable_connection
+  optional Choice.Enum choice = 1;
+
+  // Description missing in models
+  CclRocev2TemplateReliableConnection reliable_connection = 2;
+
+  // Description missing in models
+  CclRocev2TemplateUnreliableDatagram unreliable_datagram = 3;
+}
+
+// Parameters for Reliable Connection (RC) QPs auto-generated by the CCL engine. Applies
+// as a shared template across all RC QPs in the communicator. Mirrors Device.Rocev2.QPParameters
+// (dscp, ecn) but as a template rather than a per-QP static configuration. dscp and
+// ecn are placed here (not at the top level of Rocev2Template) following the same convention
+// as Device.Rocev2.QPParameters, which also sits under reliable_connection. Both fields
+// primarily serve DCQCN congestion control, which requires RC per-QP connection state.
+message CclRocev2TemplateReliableConnection {
+
+  // Under Review: Not yet mapped to a backend parameter. Target field is Rocev2GenPortParams.DscpValue.
+  // 
+  // IP DSCP value applied to all auto-generated RC QP data packets. All ranks in the
+  // communicator use the same DSCP value to ensure consistent mapping to the DUT lossless
+  // priority queue. Typical value: 24 (CS3) for RoCEv2 traffic. Corresponds to Device.Rocev2.QPParameters.dscp,
+  // which sets DSCP for one individually-configured QP; here it is a shared template.
   // default = 24
   optional int32 dscp = 1;
 
@@ -14919,122 +15112,34 @@ message CclRocev2Params {
       ce = 4;
     }
   }
-  // ECN codepoint in the IP header for all auto-generated QP data packets. ect_1 (01)
-  // marks packets as ECN-capable, enabling DCQCN congestion signals from the DUT when
-  // buffers fill. Corresponds to Device.Rocev2Peer.Rocev2.QPParameters.ecn, which sets
-  // ECN for one individually-configured QP. Here it is a shared template applied to all
-  // CCL-generated QPs.
+  // Under Review: Not yet mapped to a backend parameter. Requires setting ECN bits in
+  // the stream IP header.
+  // 
+  // ECN codepoint in the IP header for all auto-generated RC QP data packets. ect_1 (01)
+  // or ect_0 (10) marks packets as ECN-capable, enabling DCQCN congestion signals from
+  // the DUT when its buffers fill. DCQCN is an RC-specific mechanism: the receiver detects
+  // CE-marked packets and sends CNP back to the sender QP to trigger rate reduction.
+  // Corresponds to Device.Rocev2.QPParameters.ecn.
+  // default = Ecn.Enum.ect_1
   optional Ecn.Enum ecn = 2;
 
-  // PFC priority class (0-7) used for all CCL-generated QP traffic. Must match the DSCP-to-priority
-  // mapping on the DUT lossless queue. Layer1.pfc_class_N configures pause quanta per
-  // class at link level; this field identifies which class number the CCL traffic belongs
-  // to, so the tester can respond correctly to incoming PFC pause frames.
-  // default = 3
-  optional int32 pfc_priority = 3;
-
-  // Base QP number for rank 0, QP 0. The CCL engine allocates subsequent QPs sequentially:
-  // rank0_qp0 = start_qp_number, rank0_qp1 = start_qp_number + 1, and so on across all
-  // ranks. QP numbers 0 and 1 are reserved (IBTA IB Spec); minimum value is 2. Corresponds
-  // to Device.Rocev2Peer.Rocev2.QPParameters.source_qp_number, which sets the number
-  // for one specific user-defined QP. Here it is the starting offset for the CCL engine's
-  // sequential QP allocation.
-  // default = 100
-  optional int32 start_qp_number = 4;
-
-  // Base UDP source port for rank 0, QP 0. The CCL engine increments this value for each
-  // additional QP to produce distinct 5-tuples, enabling ECMP load balancing across fabric
-  // paths. Corresponds to Device.Rocev2Peer.Rocev2.QPParameters.udp_source_port, which
-  // sets the UDP source port for one specific user-defined QP. Here it is the starting
-  // offset for sequential port assignment.
-  // default = 49152
-  optional int32 start_udp_src_port = 5;
-
-  message TransportServiceType {
-    enum Enum {
-      unspecified = 0;
-      ud = 1;
-      rc = 2;
-    }
-  }
-  // QP service type for all auto-generated QPs. ud (Unreliable Datagram): connectionless;
-  // one QP can address multiple peers without Connection Manager setup. Lower overhead;
-  // used for AllToAll without PXN. rc (Reliable Connection): ACK-based in-order delivery;
-  // requires Connection Manager handshake per QP pair. CCL implementations manage the
-  // QP lifecycle internally rather than through the standard CM flow. Used for Ring AllReduce
-  // and AllToAll with PXN. Corresponds to Device.Rocev2Peer.Rocev2.ConnectionType.choice
-  // (RC/UD) at the individual QP level. Here it is a global setting for all CCL-generated
-  // QPs in this communicator.
-  // default = TransportServiceType.Enum.rc
-  optional TransportServiceType.Enum transport_service_type = 6;
-
-  // Number of data frames the sender transmits before waiting for an ACK from the receiver
-  // (RC mode only; ignored for UD). Controls the in-flight window size during a CCL step:
-  // lower values reduce reorder risk under congestion; higher values maximize throughput
-  // on clean paths. No equivalent exists in Device.Rocev2Peer or Rocev2.PerPortSettings;
-  // this is a CCL traffic generation parameter specific to how the tester paces RC acknowledgements.
-  // default = 64
-  optional int32 burst_per_ack = 7;
-
-  // Maximum number of simultaneously outstanding RC connection setups per port across
-  // all communicators. Bounds the connection establishment concurrency during the CM
-  // handshake phase. No equivalent exists in Device.Rocev2Peer; that model has the user
-  // define each QP statically. In CCL, connections are established dynamically at runtime
-  // and this parameter caps the burst.
-  // default = 300
-  optional int32 max_connections = 8;
-
-  // Rate at which the tester issues QP connection setup requests per second during the
-  // CM handshake phase (RC mode only). Spreading connection requests over time avoids
-  // overwhelming the DUT CM responder in large-scale tests (many ranks, many QPs per
-  // rank). No equivalent exists in Device.Rocev2Peer or Rocev2.PerPortSettings; this
-  // is a CCL test pacing parameter with no protocol standard mapping.
-  // default = 300
-  optional int32 connection_reqs_per_sec = 9;
-
-  // Enable RDMA message retransmission on loss (RC mode only). When true, the tester
-  // retransmits unacknowledged frames after a timeout, emulating a reliable sender. When
-  // false, lost frames are counted but not retransmitted, exposing raw drop behavior.
-  // Corresponds to Device.Rocev2Peer.Rocev2.AckAndNak.enable_retransmission_timeout,
-  // which also controls retransmission for individually-configured QPs but exposes additional
-  // timeout and retry-count knobs. Here it is a simple on/off applied globally to all
-  // CCL-generated QPs.
-  // default = False
-  optional bool enable_retransmit = 10;
-
   // Enable ECN/CNP (Congestion Notification Packet) processing. When true, the tester
-  // generates CNP frames in response to ECN-marked packets received from the DUT, activating
+  // generates CNP frames in response to CE-marked packets received from the DUT, activating
   // the DCQCN rate-reduction loop on the sender side. Set false to measure baseline throughput
-  // without congestion control. Rocev2.PerPortSettings.dcqcn_settings exposes the full
-  // DCQCN algorithm (alpha, rate timers, increment thresholds). This field is a simpler
-  // on/off that covers the common test need of toggling DCQCN on or off without tuning
-  // the algorithm parameters.
+  // without congestion control. CNP generation requires per-QP connection state and is
+  // therefore an RC-specific mechanism; this field is not applicable to unreliable_datagram.
+  // Rocev2.PerPortSettings.dcqcn_settings exposes the full DCQCN algorithm parameters
+  // (alpha, rate timers, thresholds). This field is a simpler on/off covering the common
+  // need of toggling DCQCN without tuning algorithm internals.
   // default = True
-  optional bool enable_ecn_cnp = 11;
+  optional bool enable_ecn_cnp = 3;
+}
 
-  // Enable PFC (Priority Flow Control) pause frame generation and processing on the pfc_priority
-  // queue. When true, the tester sends PFC PAUSE frames when its receive buffer fills
-  // and honors incoming PFC PAUSE from the DUT, achieving lossless Ethernet behavior
-  // for the CCL traffic class. Set false to test lossy behavior or measure the impact
-  // of disabling flow control. Layer1.pfc_class_N configures PFC pause quanta at link
-  // level and does not provide a per-traffic-class on/off switch. This field fills that
-  // gap for the CCL test scenario by explicitly enabling or disabling PFC for the class
-  // identified by pfc_priority.
-  // default = True
-  optional bool enable_pfc = 12;
-
-  message Encapsulation {
-    enum Enum {
-      unspecified = 0;
-      ipv4 = 1;
-      ipv6 = 2;
-    }
-  }
-  // IP encapsulation type for all auto-generated QP data packets. ipv4: standard RoCEv2
-  // over IPv4 (most common deployment). ipv6: RoCEv2 over IPv6 with Global Routing Header
-  // (GRH); requires IPv6 addresses configured on the communicator devices.
-  // default = Encapsulation.Enum.ipv4
-  optional Encapsulation.Enum encapsulation = 13;
+// Parameters for Unreliable Datagram (UD) QPs auto-generated by the CCL engine. UD
+// QPs are used for AllToAll at scale where RC per-pair connection overhead (O(N^2)
+// QPs) is not feasible. No sub-fields are defined at this time. UD-specific parameters
+// will be added as the AllToAll use case matures.
+message CclRocev2TemplateUnreliableDatagram {
 }
 
 // Port specific configurations.
@@ -19960,6 +20065,11 @@ message CclMetricsRequest {
       iteration_count = 11;
       drop_count = 12;
       reorder_count = 13;
+      l1_alg_bw = 14;
+      l1_bus_bw = 15;
+      reduce_time = 16;
+      training_time = 17;
+      trans_time = 18;
     }
   }
   // The list of column names that the returned result set will contain. An empty list
@@ -19970,13 +20080,16 @@ message CclMetricsRequest {
   // default = False
   optional bool include_tail_latency_cdf = 4;
 
-  // When true, include the list of abnormal iteration records in each CclMetric response.
+  // Under Review: Depends on stage_loop_count which is not yet implemented.
+  // 
+  // When true, include per-stage-loop JCT metrics in each CclMetric response. Only meaningful
+  // when stage_loop_count > 1. Maps to CclJctLoopResult in STC.
   // default = False
-  optional bool include_abnormal_iterations = 5;
+  optional bool include_loop_metrics = 5;
 }
 
 // CCL metrics for one communicator (and one stage, for multi-stage configs). Includes
-// JCT measurements, bandwidth, and optional CDF/abnormal data.
+// JCT measurements, bandwidth, time breakdown, and optional CDF/stream data.
 message CclMetric {
 
   // Name of the communicator this metric row belongs to.
@@ -20000,7 +20113,7 @@ message CclMetric {
   // calibrated_jct / ideal_jct * 100. Values near 100 indicate ideal performance.
   optional double jct_percent = 7;
 
-  // Algorithm bandwidth = data_size / jct (Gbps).
+  // Algorithm bandwidth = data_size / calibrated_jct (Gbps).
   optional double alg_bw = 8;
 
   // Bus bandwidth = alg_bw * algorithm_coefficient (Gbps). Coefficients follow nccl-tests
@@ -20022,19 +20135,93 @@ message CclMetric {
   // Number of completed iterations.
   optional int32 iteration_count = 14;
 
-  // Total dropped packets. Acceptance criterion for lossless = 0.
+  // Total dropped packets across all streams for this communicator. Aggregated from CclStreamResult.DropCount.
+  // Acceptance criterion for lossless fabric = 0.
   optional int32 drop_count = 15;
 
-  // Total reordered packets.
+  // Total reordered packets across all streams for this communicator. Aggregated from
+  // CclStreamResult.ReorderCount.
   optional int32 reorder_count = 16;
 
   // Tail latency CDF distribution. Populated when Ccl.Metrics.Request.include_tail_latency_cdf
   // = true.
   repeated CclTailLatencyCDFBucket tail_latency_cdf = 17;
 
-  // List of abnormal iteration records. Populated when Ccl.Metrics.Request.include_abnormal_iterations
-  // = true.
-  repeated CclAbnormalIterationMetric abnormal_iterations = 18;
+  // Layer-1 algorithm bandwidth (Gbps), calculated using the JCT basis. Includes Ethernet/IP/UDP/RoCEv2
+  // frame overhead, matching the physical link utilization measured by line-rate counters.
+  // Use this to compare against port line rate; use alg_bw to compare against nccl-tests
+  // / GPU benchmarks (which report payload BW). Maps to CclJctResult.L1AlgBwJCT.
+  optional double l1_alg_bw = 19;
+
+  // Layer-1 bus bandwidth (Gbps), calculated using the JCT basis. L1 equivalent of bus_bw;
+  // includes frame overhead. Maps to CclJctResult.L1BusBwJCT.
+  optional double l1_bus_bw = 20;
+
+  // Total GPU compute (reduce) time accumulated across all iterations (seconds). Represents
+  // time ranks spent on local computation between communication phases. Maps to CclJctResult.ReduceTime.
+  optional double reduce_time = 21;
+
+  // Total training time = communication time + reduce time (seconds). Represents one
+  // full training step including both compute and collective communication. Maps to CclJctResult.TrainingTime.
+  optional double training_time = 22;
+
+  // Total pure transmission time (seconds), excluding compute gaps. Maps to CclJctResult.TransTime.
+  optional double trans_time = 23;
+
+  // Under Review: Depends on stage_loop_count which is not yet implemented.
+  // 
+  // Per-stage-loop JCT breakdown. Populated when Ccl.Metrics.Request.include_loop_metrics
+  // = true and stage_loop_count > 1. Each entry is one complete pass through all stages.
+  // Maps to CclJctLoopResult in STC.
+  repeated CclLoopMetric loop_metrics = 24;
+}
+
+// JCT and bandwidth metrics for one stage-loop iteration. One entry per completed pass
+// through the full stage sequence. Only populated when stage_loop_count > 1 and include_loop_metrics
+// = true in the metrics request. Maps to CclJctLoopResult in STC.
+message CclLoopMetric {
+
+  // 1-based stage loop index.
+  optional int32 stage_loop = 1;
+
+  // Measured JCT for this loop (seconds).
+  optional double jct = 2;
+
+  // Calibrated JCT for this loop (seconds).
+  optional double calibrated_jct = 3;
+
+  // Ideal JCT for this loop (seconds).
+  optional double ideal_jct = 4;
+
+  // calibrated_jct / ideal_jct * 100 for this loop.
+  optional double jct_percent = 5;
+
+  // Algorithm bandwidth for this loop (Gbps).
+  optional double alg_bw = 6;
+
+  // Bus bandwidth for this loop (Gbps).
+  optional double bus_bw = 7;
+
+  // Layer-1 algorithm bandwidth for this loop (Gbps).
+  optional double l1_alg_bw = 8;
+
+  // Layer-1 bus bandwidth for this loop (Gbps).
+  optional double l1_bus_bw = 9;
+
+  // Average JCT across iterations in this loop (seconds).
+  optional double avg_jct = 10;
+
+  // Maximum JCT across iterations in this loop (seconds).
+  optional double max_jct = 11;
+
+  // Minimum JCT across iterations in this loop (seconds).
+  optional double min_jct = 12;
+
+  // Maximum tail latency across all ranks in this loop (µs).
+  optional int32 max_tail_latency_us = 13;
+
+  // Number of completed iterations in this loop.
+  optional int32 iteration_count = 14;
 }
 
 // One bucket in the tail latency CDF distribution.
@@ -20043,45 +20230,10 @@ message CclTailLatencyCDFBucket {
   // Cumulative percentage at this bucket boundary (e.g. 99.9).
   optional double percent = 1;
 
-  // Transmission time at this cumulative percentile (microseconds).
-  optional double transmission_time_us = 2;
-
-  // Number of streams falling in this bucket.
-  optional int32 count = 3;
-}
-
-// Record for one abnormal iteration that exceeded the configured thresholds in Ccl.AbnormalThreshold.
-message CclAbnormalIterationMetric {
-
-  // 1-based iteration index that was flagged as abnormal.
-  optional int32 iteration = 1;
-
-  // Stage index this abnormal iteration belongs to (-1 for single-stage).
-  optional int32 stage_index = 2;
-
-  // Whether the iteration completed (false = timed out or aborted).
-  optional bool is_complete = 3;
-
-  // Human-readable description of why this iteration was flagged.
-  optional string failure_reason = 4;
-
-  // calibrated_jct / ideal_jct * 100 for this iteration.
-  optional double jct_percent = 5;
-
-  // Packet drops in this iteration.
-  optional int32 drop_count = 6;
-
-  // Packet reorders in this iteration.
-  optional int32 reorder_count = 7;
-
-  // CNP (Congestion Notification Packet) frames received in this iteration.
-  optional int32 rx_cnp_count = 8;
-
-  // ECN-marked frames received in this iteration.
-  optional int32 rx_ecn_count = 9;
-
-  // PFC pause frames received in this iteration.
-  optional int32 rx_pfc_count = 10;
+  // Transmission time at this cumulative percentile expressed as a percentage of the
+  // ideal transmission time based on line rate. Maps to CclTailLatencyCDFResult.TransmissionTimePercent
+  // in STC. Values above 100% indicate congestion or retransmission overhead.
+  optional double transmission_time_percent = 2;
 }
 
 // Request to traffic generator for states of choice
