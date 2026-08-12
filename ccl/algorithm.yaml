@@ -25,6 +25,7 @@ components:
             not standalone algorithms. Use choice=ring_allreduce (or other
             allreduce variants) with phase=reduce_scatter / phase=all_gather.
           type: string
+          default: ring_allreduce
           x-field-uid: 1
           x-enum:
             ring_allreduce:
@@ -49,6 +50,7 @@ components:
             reduce_scatter: only the scatter phase.
             all_gather: only the gather phase.
           type: string
+          default: allreduce
           x-field-uid: 2
           x-enum:
             allreduce:

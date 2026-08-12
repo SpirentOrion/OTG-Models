@@ -63,7 +63,7 @@ components:
       description: >-
         Provides state control of CCL traffic execution.
         All configured CCL configs are started or stopped atomically.
-        start: runs full sequence (ARP resolution + QP setup + N iterations + teardown).
+        start: runs full sequence (ARP resolution + QP setup + stage sequence + teardown).
         stop: interrupts the current CCL run.
       type: object
       required:

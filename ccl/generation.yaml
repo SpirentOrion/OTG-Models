@@ -1,13 +1,16 @@
 openapi: 3.0.3
 info:
-  title: CCL traffic parameters models
+  title: CCL generation parameters models
   version: ^0.0.0
 components:
   schemas:
-    Ccl.TrafficParams:
+    Ccl.Generation:
       description: >-
-        Traffic generation parameters for a CCL stage or single-stage config.
-        Controls data volume, frame sizing, QP count, and RoCEv2 transport settings.
+        Traffic generation parameters for a CCL communicator.
+        Controls data volume, iteration pacing, and QP scheduling behavior.
+        Transport-level settings (ib_mtu, chunk_size_kb, qps_per_peer,
+        encapsulation, connection type) are configured separately in
+        Ccl.Rocev2Policy.
       type: object
       properties:
         data_size:
@@ -37,50 +40,6 @@ components:
               x-field-uid: 4
             kilobyte:
               x-field-uid: 5
-        ib_mtu:
-          description: >-
-            InfiniBand MTU in bytes — the RDMA payload size per packet.
-            Standard values: 256, 512, 1024, 2048, 4096.
-            Use 4096 for large transfers (AllReduce, AllToAll) to maximise
-            link efficiency; use 1024 for MTU sensitivity testing.
-            Aligns with Device.Rocev2.ib_mtu.
-          type: integer
-          default: 4096
-          minimum: 256
-          maximum: 4096
-          x-field-uid: 3
-        qps_per_peer:
-          description: >-
-            Number of QPs established between each communicating rank pair.
-            Each QP uses a distinct UDP source port, producing a unique 5-tuple
-            that hashes to a different ECMP path. Set to the number of parallel
-            fabric paths available between ranks to fully utilize fabric bandwidth.
-          type: integer
-          default: 1
-          minimum: 1
-          maximum: 65535
-          x-field-uid: 4
-        chunk_size_kb:
-          x-status:
-            status: under-review
-            information: Not yet mapped to a backend parameter. Requires setting Rocev2GenPortParams.RdmaMsgLength in ccl.go.
-          description: >-
-            Size of each RDMA WRITE operation in KB (RC mode only).
-            The total data_size is divided into chunks of this size; each chunk
-            is sent as one RDMA WRITE. Chunk size directly shapes the traffic
-            pattern: small values (e.g. 64 KB) produce many short RDMA Writes
-            with frequent ACKs; large values (e.g. 2 MB) produce fewer but
-            larger bursts. Real GPU collective operations (GPUDirect RDMA)
-            send data at varying granularities, and DUT behavior — buffer
-            occupancy, ECN marking frequency, PFC trigger rate — differs
-            measurably between chunk sizes.
-            When omitted, the implementation auto-computes the chunk size
-            from data_size (equivalent to no chunking limit).
-          type: integer
-          default: 4194304
-          minimum: 1
-          maximum: 4194304
-          x-field-uid: 5
         compute_gap:
           description: >-
             GPU compute (reduce) gap inserted between successive collective
@@ -88,22 +47,19 @@ components:
             communication phases. When omitted, no gap is inserted (equivalent
             to back-to-back stress test with fixed.ms = 0).
             Mirrors the Flow.Duration discriminated union pattern.
-          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap'
+          $ref: '#/components/schemas/Ccl.Generation.ComputeGap'
           x-field-uid: 15
         qp_scheduling:
-          x-status:
-            status: under-review
-            information: Not yet mapped to a backend parameter.
           description: >-
             Controls how the traffic generator interleaves multiple QP flows
             on a shared port: how much each QP transmits in one scheduling
             turn before the next QP gets its turn. Affects per-ECMP-path
             burst size and how readily ECN or PFC is triggered on the DUT.
             Mirrors the Flow.Duration discriminated union pattern.
-          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling'
+          $ref: '#/components/schemas/Ccl.Generation.QpScheduling'
           x-field-uid: 10
 
-    Ccl.TrafficParams.ComputeGap:
+    Ccl.Generation.ComputeGap:
       description: >-
         Discriminated union for the GPU compute (reduce) gap between iterations.
         fixed: constant gap of fixed.ms milliseconds each iteration.
@@ -122,13 +78,13 @@ components:
             random:
               x-field-uid: 2
         fixed:
-          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap.Fixed'
+          $ref: '#/components/schemas/Ccl.Generation.ComputeGap.Fixed'
           x-field-uid: 2
         random:
-          $ref: '#/components/schemas/Ccl.TrafficParams.ComputeGap.Random'
+          $ref: '#/components/schemas/Ccl.Generation.ComputeGap.Random'
           x-field-uid: 3
 
-    Ccl.TrafficParams.ComputeGap.Fixed:
+    Ccl.Generation.ComputeGap.Fixed:
       description: >-
         Constant compute gap applied at every iteration.
         Set ms = 0 for back-to-back stress testing with no compute phase.
@@ -141,7 +97,7 @@ components:
           minimum: 0
           x-field-uid: 1
 
-    Ccl.TrafficParams.ComputeGap.Random:
+    Ccl.Generation.ComputeGap.Random:
       description: >-
         Compute gap sampled uniformly from [min_ms, max_ms] at each iteration.
         Use this to model natural variance in GPU compute time, producing more
@@ -161,7 +117,7 @@ components:
           minimum: 0
           x-field-uid: 2
 
-    Ccl.TrafficParams.QpScheduling:
+    Ccl.Generation.QpScheduling:
       description: >-
         Discriminated union for per-QP transmission scheduling.
         continuous: each QP completes one full RDMA Write before yielding;
@@ -182,26 +138,25 @@ components:
             frame_count:
               x-field-uid: 3
         continuous:
-          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.Continuous'
+          $ref: '#/components/schemas/Ccl.Generation.QpScheduling.Continuous'
           x-field-uid: 2
         data_size:
-          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.DataSize'
+          $ref: '#/components/schemas/Ccl.Generation.QpScheduling.DataSize'
           x-field-uid: 3
         frame_count:
-          $ref: '#/components/schemas/Ccl.TrafficParams.QpScheduling.FrameCount'
+          $ref: '#/components/schemas/Ccl.Generation.QpScheduling.FrameCount'
           x-field-uid: 4
 
-    Ccl.TrafficParams.QpScheduling.Continuous:
+    Ccl.Generation.QpScheduling.Continuous:
       description: >-
         Each QP completes one full RDMA Write operation before yielding to
-        the next QP. The scheduling quantum equals rdma_msg_length_kb; no
-        other QP is interleaved within a single RDMA Write.
+        the next QP; no other QP is interleaved within a single RDMA Write.
         This is the default mode and most closely approximates real GPU
         behavior: GPUDirect RDMA issues data in complete message-sized chunks
         without mid-message interleaving from other QPs.
       type: object
 
-    Ccl.TrafficParams.QpScheduling.DataSize:
+    Ccl.Generation.QpScheduling.DataSize:
       description: >-
         Each QP sends a fixed volume of data per scheduling turn before
         yielding. Larger values produce bigger per-ECMP-path bursts, more
@@ -216,7 +171,7 @@ components:
           minimum: 1
           x-field-uid: 1
 
-    Ccl.TrafficParams.QpScheduling.FrameCount:
+    Ccl.Generation.QpScheduling.FrameCount:
       description: >-
         Each QP sends a fixed number of frames per scheduling turn before
         yielding. Packet-fair across QPs; useful for testing fine-grained

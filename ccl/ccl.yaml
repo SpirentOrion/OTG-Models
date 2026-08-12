@@ -10,8 +10,9 @@ components:
       description: >-
         Collective communication configuration. Simulates NCCL-style
         AllReduce / AllToAll operations and measures Job Completion Time (JCT).
-        Algorithm, communicators, and traffic parameters are configured per
-        stage via stages[]. For a simple single-algorithm test, define one stage.
+        Algorithm, communicators, and generation parameters are configured per
+        communicator inside stages[]. For a simple single-algorithm test,
+        define one stage with one communicator.
       type: object
       required:
         - name
@@ -26,10 +27,9 @@ components:
           description: >-
             Underlying transport type for CCL traffic.
             rocev2: RoCEv2 QP-based transport (production AI Fabric).
-            uet: Ultra Ethernet Transport (UEC v1.0, 2024+). Under review — UET
-            transport is defined in the model but not yet implemented in the
-            traffic generator backend.
+            uet: Ultra Ethernet Transport (UEC v1.0, 2024+).
           type: string
+          default: rocev2
           x-field-uid: 2
           x-enum:
             rocev2:
@@ -42,6 +42,7 @@ components:
             (pipelined).
             sync: each iteration waits for all ranks to complete before proceeding.
           type: string
+          default: async
           x-field-uid: 4
           x-enum:
             async:
@@ -54,46 +55,67 @@ components:
             Rank 0 starts first; each subsequent rank (in device_names order)
             waits an additional interval before starting its traffic.
             Only effective when send_mode = sync.
-            STC native: SyncSendInterval (unit: 64µs; ccl.go converts ms × 1000 / 64).
           type: integer
           default: 0
           minimum: 0
           x-field-uid: 5
-          x-status:
-            status: under-review
-            information: Not yet mapped to a backend parameter. STC native unit is 64µs; requires ms-to-64µs conversion in ccl.go.
         stage_mode:
           description: >-
             sequential: stages are executed in array order; each stage starts
             only after all communicators in the previous stage have completed.
             llm: LLM-specific multi-phase mode (Prefill/Decode etc.); enables
-            LLM-aware Sequencer behavior in the backend. Under review — llm
-            mode is defined in the model but not yet implemented.
+            LLM-aware Sequencer behavior in the backend.
           type: string
+          default: sequential
           x-field-uid: 6
           x-enum:
             sequential:
               x-field-uid: 1
             llm:
               x-field-uid: 3
+        llm_index:
+          description: >-
+            0-based index into stages[] where the Decode loop begins.
+            Stages[0 .. llm_index-1] run once (Prefill phases).
+            Stages[llm_index ..] repeat stage_loop_count times (Decode loop).
+            Only effective when stage_mode = llm.
+            Must be less than the length of stages[].
+          type: integer
+          default: 1
+          minimum: 1
+          x-field-uid: 17
         stage_loop_count:
           description: >-
-            Number of times to repeat the full stage sequence.
-            One loop = one complete pass through all stages in order.
-            The default value of 1 means the sequence runs once with no repetition.
+            Number of times to repeat the full stage sequence (all stages in order = one loop pass).
+            stage_loop_count = 1 means a single pass (default, no repetition).
+            stage_loop_count > 1 repeats all stages N times; use with include_loop_metrics
+            to detect JCT drift across loop passes.
           type: integer
           default: 1
           minimum: 1
           x-field-uid: 7
-          x-status:
-            status: under-review
-            information: Requires multi-stage support which is not yet implemented.
         stages:
           description: >-
             Ordered list of stages. Each stage defines its own algorithm,
-            communicators, and traffic parameters. For a single-algorithm test,
+            communicators, and generation parameters. For a single-algorithm test,
             provide exactly one stage.
           type: array
           items:
             $ref: './stage.yaml#/components/schemas/Ccl.Stage'
           x-field-uid: 14
+        iteration_recording:
+          description: >-
+            Per-iteration threshold-triggered recording configuration.
+            Evaluated during test execution; recorded data is returned in
+            Ccl.Metric.iteration_metrics[] without additional request flags.
+            Disabled by default.
+          $ref: './iteration_recording.yaml#/components/schemas/Ccl.Config.IterationRecording'
+          x-field-uid: 15
+        stream_recording:
+          description: >-
+            Per-QP-pair per-step rolling TOP-N recording configuration.
+            Evaluated during test execution; recorded data is returned in
+            Ccl.Metric.stream_metrics[] without additional request flags.
+            Disabled by default.
+          $ref: './stream_recording.yaml#/components/schemas/Ccl.Config.StreamRecording'
+          x-field-uid: 16

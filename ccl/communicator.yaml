@@ -42,22 +42,21 @@ components:
             When not set, the communicator inherits stage.algorithm.
           $ref: './algorithm.yaml#/components/schemas/Ccl.Algorithm'
           x-field-uid: 3
-          x-status:
-            status: under-review
-            information: Per-communicator algorithm override is not yet implemented in the backend.
-        traffic_params:
+        generation:
           description: >-
             Traffic generation parameters for this communicator.
             Different communicators in the same stage may carry different data
-            volumes and QP counts (e.g., TP group vs EP group), so traffic
+            volumes and pacing (e.g., TP group vs EP group), so generation
             parameters are configured per communicator.
-          $ref: './traffic_params.yaml#/components/schemas/Ccl.TrafficParams'
+            Transport-level settings (ib_mtu, chunk_size_kb, qps_per_peer) are in rocev2.
+          $ref: './generation.yaml#/components/schemas/Ccl.Generation'
           x-field-uid: 4
         rocev2:
           description: >-
-            RoCEv2 transport parameters applied as a shared template to all QPs
-            auto-generated for this communicator. Only applicable when transport = rocev2.
-            All ranks share the same encapsulation and connection-type settings
-            to ensure PFC coherence across the communicator.
-          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Template'
+            RoCEv2 transport policy enforced uniformly across all ports in this
+            communicator. Only applicable when transport = rocev2.
+            Per-port variation is not supported: connection type must be identical
+            (protocol constraint), and DSCP must be identical (PFC correctness
+            constraint). See Ccl.Rocev2Policy for details.
+          $ref: './rocev2_params.yaml#/components/schemas/Ccl.Rocev2Policy'
           x-field-uid: 5
