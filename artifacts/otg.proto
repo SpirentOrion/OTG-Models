@@ -10265,6 +10265,7 @@ message Rocev2ConnectionType {
     enum Enum {
       unspecified = 0;
       reliable_connection = 1;
+      unreliable_datagram = 2;
     }
   }
   // Description missing in models
@@ -10273,6 +10274,9 @@ message Rocev2ConnectionType {
 
   // Description missing in models
   Rocev2QPParameters reliable_connection = 2;
+
+  // Description missing in models
+  Rocev2UDParameters unreliable_datagram = 3;
 }
 
 // Defines the parameters for configuring a RoCEv2 QP.
@@ -10317,6 +10321,42 @@ message Rocev2QPParameters {
   // Remote Key linked to the QP's virtual address.
   // default = 00000000
   optional string remote_key = 7;
+}
+
+// Defines the parameters for configuring a RoCEv2 Unreliable Datagram (UD) QP.
+message Rocev2UDParameters {
+
+  // Configure Source QP number which initiates the RDMA operation.
+  // default = 2
+  optional uint32 source_qp_number = 1;
+
+  // DSCP value for the RDMA data packets.
+  // default = 24
+  optional uint32 dscp = 2;
+
+  message Ecn {
+    enum Enum {
+      unspecified = 0;
+      non_ect = 1;
+      ect_1 = 2;
+      ect_0 = 3;
+      ce = 4;
+    }
+  }
+  // This field allows to configure bits of the Traffic Class field in the IPv4 or IPv6
+  // header to encode four different code points. Those are non_ect, ect_1, ect_0 and
+  // ce. non_ect quivalent is 00, ect_1 represent 01, ect_0 represent 10 and ce means
+  // 11.
+  // default = Ecn.Enum.ect_1
+  optional Ecn.Enum ecn = 3;
+
+  // UDP source port number for this QP.
+  // default = 49152
+  optional uint32 udp_source_port = 4;
+
+  // Initial packet sequence number of the data transfer packet generated for this QP.
+  // default = 0
+  optional uint64 initial_psn = 5;
 }
 
 // This contains an array of references to IPv6 interfaces, each having a list of IPv6
@@ -15199,6 +15239,7 @@ message Rocev2QPConnectionType {
     enum Enum {
       unspecified = 0;
       reliable_connection = 1;
+      unreliable_datagram = 2;
     }
   }
   // Description missing in models
@@ -15207,6 +15248,9 @@ message Rocev2QPConnectionType {
 
   // Description missing in models
   Rocev2AckAndNak reliable_connection = 2;
+
+  // Description missing in models
+  Rocev2UnreliableDatagram unreliable_datagram = 3;
 }
 
 // Defines the ACK and NAK settings for RoCEv2. This configuration ensures reliable
@@ -15232,6 +15276,11 @@ message Rocev2AckAndNak {
   // Number of retransmission attempts before stopping due to missing ACK/NAK.
   // default = 3
   optional uint32 retransmission_retry_count = 5;
+}
+
+// Unreliable Datagram (UD) port settings. UD is connectionless and best-effort:
+// it has no ACK/NAK and no retransmission, so no port-level settings are required.
+message Rocev2UnreliableDatagram {
 }
 
 // ACK parameters.
