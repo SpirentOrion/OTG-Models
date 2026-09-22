@@ -115,8 +115,6 @@ components:
     Rocev2.Verb:
       description: >-
           RoCEv2 Verb. Available options are: WRITE, WRITE_With_Immediate, SEND, SEND_With_Immediate and READ.
-          When the QP's connection_type is unreliable_datagram (UD), only SEND and SEND_With_Immediate
-          are valid since UD does not support RDMA WRITE/READ operations.
       type: object
       properties:
         choice:
