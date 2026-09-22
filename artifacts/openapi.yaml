@@ -13758,12 +13758,18 @@ components:
           x-enum:
             reliable_connection:
               x-field-uid: 1
+            unreliable_datagram:
+              x-field-uid: 2
           x-field-uid: 1
           enum:
           - reliable_connection
+          - unreliable_datagram
         reliable_connection:
           $ref: '#/components/schemas/Rocev2.QPParameters'
           x-field-uid: 2
+        unreliable_datagram:
+          $ref: '#/components/schemas/Rocev2.UDParameters'
+          x-field-uid: 3
     Rocev2.QPParameters:
       description: |-
         Defines the parameters for configuring a RoCEv2 QP.
@@ -13841,6 +13847,67 @@ components:
           default: '00000000'
           maxLength: 8
           x-field-uid: 7
+    Rocev2.UDParameters:
+      description: |-
+        Defines the parameters for configuring a RoCEv2 Unreliable Datagram (UD) QP.
+      type: object
+      properties:
+        source_qp_number:
+          description: |-
+            Configure Source QP number which initiates the RDMA operation.
+          type: integer
+          format: uint32
+          default: 2
+          minimum: 2
+          maximum: 33554431
+          x-field-uid: 1
+        dscp:
+          description: |-
+            DSCP value for the RDMA data packets.
+          type: integer
+          format: uint32
+          default: 24
+          minimum: 0
+          maximum: 63
+          x-field-uid: 2
+        ecn:
+          description: |-
+            This field allows to configure bits of the Traffic Class field in the IPv4 or IPv6 header to encode four different code points. Those are non_ect, ect_1, ect_0 and ce. non_ect quivalent is 00, ect_1 represent 01, ect_0 represent 10 and ce means 11.
+          type: string
+          default: ect_1
+          x-enum:
+            non_ect:
+              x-field-uid: 1
+            ect_1:
+              x-field-uid: 2
+            ect_0:
+              x-field-uid: 3
+            ce:
+              x-field-uid: 4
+          x-field-uid: 3
+          enum:
+          - non_ect
+          - ect_1
+          - ect_0
+          - ce
+        udp_source_port:
+          description: |-
+            UDP source port number for this QP.
+          type: integer
+          format: uint32
+          default: 49152
+          minimum: 0
+          maximum: 65535
+          x-field-uid: 4
+        initial_psn:
+          description: |-
+            Initial packet sequence number of the data transfer packet generated for this QP.
+          type: integer
+          format: uint64
+          default: 0
+          minimum: 0
+          maximum: 33554431
+          x-field-uid: 5
     Rocev2.V6Interface:
       description: |-
         This contains an array of references to IPv6 interfaces, each having a list of IPv6 peers to various destinations.
@@ -19695,12 +19762,18 @@ components:
           x-enum:
             reliable_connection:
               x-field-uid: 1
+            unreliable_datagram:
+              x-field-uid: 2
           x-field-uid: 1
           enum:
           - reliable_connection
+          - unreliable_datagram
         reliable_connection:
           $ref: '#/components/schemas/Rocev2.AckAndNak'
           x-field-uid: 2
+        unreliable_datagram:
+          $ref: '#/components/schemas/Rocev2.UnreliableDatagram'
+          x-field-uid: 3
     Rocev2.AckAndNak:
       description: |-
         Defines the ACK and NAK settings for RoCEv2. This configuration ensures reliable data delivery by controlling how the system responds to successful and failed packet transmissions.
@@ -19736,6 +19809,11 @@ components:
           minimum: 0
           maximum: 254
           x-field-uid: 5
+    Rocev2.UnreliableDatagram:
+      description: |-
+        Unreliable Datagram (UD) port settings. UD is connectionless and best-effort:
+        it has no ACK/NAK and no retransmission, so no port-level settings are required.
+      type: object
     Rocev2.ACK:
       description: |-
         ACK parameters.

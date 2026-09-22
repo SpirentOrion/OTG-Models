@@ -66,10 +66,15 @@ components:
           x-enum:
             reliable_connection:
               x-field-uid: 1
+            unreliable_datagram:
+              x-field-uid: 2
           x-field-uid: 1
         reliable_connection:
           $ref: '#/components/schemas/Rocev2.AckAndNak'
           x-field-uid: 2
+        unreliable_datagram:
+          $ref: '#/components/schemas/Rocev2.UnreliableDatagram'
+          x-field-uid: 3
     Rocev2.AckAndNak:
       description: |-
         Defines the ACK and NAK settings for RoCEv2. This configuration ensures reliable data delivery by controlling how the system responds to successful and failed packet transmissions.
@@ -105,6 +110,11 @@ components:
           minimum: 0
           maximum: 254
           x-field-uid: 5
+    Rocev2.UnreliableDatagram:
+      description: |-
+        Unreliable Datagram (UD) port settings. UD is connectionless and best-effort:
+        it has no ACK/NAK and no retransmission, so no port-level settings are required.
+      type: object
     Rocev2.ACK:
       description: |-
         ACK parameters.
