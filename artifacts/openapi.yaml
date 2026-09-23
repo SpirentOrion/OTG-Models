@@ -19641,7 +19641,19 @@ components:
         CNP parameters.
       type: object
       properties:
+        enable:
+          description: |-
+            Enables ECN-based congestion notification (CNP generation) for RoCEv2
+            traffic on this port. When set to false, the port neither reacts to
+            ECN-marked (CE) packets by generating CNPs, nor applies any of the
+            other cnp.* configuration (choice/ip_dscp/ecn_value/cnp_delay_timer),
+            which become inapplicable.
+          type: boolean
+          default: true
+          x-field-uid: 5
         choice:
+          description: |-
+            Only applicable when cnp.enable is true.
           type: string
           default: ip_dscp
           x-enum:
@@ -19652,12 +19664,12 @@ components:
           - ip_dscp
         ip_dscp:
           description: |-
-            IP DSCP value for the CNP packets.
+            IP DSCP value for the CNP packets. Only applicable when cnp.enable is true.
           $ref: '#/components/schemas/Rocev2.PriorityValue'
           x-field-uid: 2
         ecn_value:
           description: |-
-            CNP ECN Value.
+            CNP ECN Value. Only applicable when cnp.enable is true.
           type: string
           default: ect_1
           x-enum:
@@ -19677,7 +19689,7 @@ components:
           - ce
         cnp_delay_timer:
           description: |-
-            The interval duration between the generation of successive CNP packets should be specified in microseconds.
+            The interval duration between the generation of successive CNP packets should be specified in microseconds. Only applicable when cnp.enable is true.
           type: integer
           format: uint32
           default: 55
