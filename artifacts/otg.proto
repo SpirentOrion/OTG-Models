@@ -15159,17 +15159,25 @@ message Rocev2PerPortSettings {
 // CNP parameters.
 message Rocev2CNP {
 
+  // Enables ECN-based congestion notification (CNP generation) for RoCEv2
+  // traffic on this port. When set to false, the port neither reacts to
+  // ECN-marked (CE) packets by generating CNPs, nor applies any of the
+  // other cnp.* configuration (choice/ip_dscp/ecn_value/cnp_delay_timer),
+  // which become inapplicable.
+  // default = True
+  optional bool enable = 5;
+
   message Choice {
     enum Enum {
       unspecified = 0;
       ip_dscp = 1;
     }
   }
-  // Description missing in models
+  // Only applicable when cnp.enable is true.
   // default = Choice.Enum.ip_dscp
   optional Choice.Enum choice = 1;
 
-  // IP DSCP value for the CNP packets.
+  // IP DSCP value for the CNP packets. Only applicable when cnp.enable is true.
   Rocev2PriorityValue ip_dscp = 2;
 
   message EcnValue {
@@ -15181,12 +15189,12 @@ message Rocev2CNP {
       ce = 4;
     }
   }
-  // CNP ECN Value.
+  // CNP ECN Value. Only applicable when cnp.enable is true.
   // default = EcnValue.Enum.ect_1
   optional EcnValue.Enum ecn_value = 3;
 
   // The interval duration between the generation of successive CNP packets should be
-  // specified in microseconds.
+  // specified in microseconds. Only applicable when cnp.enable is true.
   // default = 55
   optional uint32 cnp_delay_timer = 4;
 }
