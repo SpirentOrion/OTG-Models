@@ -19400,6 +19400,81 @@ components:
           - kb
           - mb
           - gb
+        duration:
+          $ref: '#/components/schemas/Rocev2.FlowDuration'
+          x-field-uid: 7
+    Rocev2.FlowDuration:
+      description: |-
+        Determines when this flow automatically stops sending message_size RDMA operations. continuous (default) is today's behavior: the flow keeps running per Rocev2.TransmitType.choice until externally stopped. fixed_message_count and fixed_data_size are two equivalent ways to express the same stopping condition -- pick whichever unit is natural for the test: an exact operation count, or an approximate total data volume.
+      type: object
+      properties:
+        choice:
+          type: string
+          default: continuous
+          x-enum:
+            continuous:
+              x-field-uid: 1
+            fixed_message_count:
+              x-field-uid: 2
+            fixed_data_size:
+              x-field-uid: 3
+          x-field-uid: 1
+          enum:
+          - continuous
+          - fixed_message_count
+          - fixed_data_size
+        fixed_message_count:
+          $ref: '#/components/schemas/Rocev2.FixedMessageCount'
+          x-field-uid: 2
+        fixed_data_size:
+          $ref: '#/components/schemas/Rocev2.FixedDataSize'
+          x-field-uid: 3
+    Rocev2.FixedMessageCount:
+      description: |-
+        Transmit a fixed number of message_size-sized RDMA operations, then stop. Total data transferred is exactly count * message_size -- no rounding or truncation, since count is what actually gets posted.
+      type: object
+      properties:
+        count:
+          description: |-
+            Number of message_size-sized RDMA operations to send before this flow stops.
+          type: integer
+          format: uint64
+          default: 1
+          minimum: 1
+          x-field-uid: 1
+    Rocev2.FixedDataSize:
+      description: |-
+        Transmit until approximately this much total data has been sent, then stop. Total data is chunked into repeated message_size operations; when size is not an exact multiple of message_size, the final operation is truncated to the remaining byte count (implementation-defined rounding otherwise). Prefer fixed_message_count when an exact, unambiguous stop point matters.
+      type: object
+      properties:
+        size:
+          description: |-
+            Total amount of data to transfer for this flow.
+          type: integer
+          format: uint64
+          default: 1
+          minimum: 0
+          x-field-uid: 1
+        unit:
+          description: |-
+            Unit of size. Available options are Bytes, KiloBytes (KB), MegaBytes (MB) and GigaBytes (GB).
+          type: string
+          default: gb
+          x-enum:
+            bytes:
+              x-field-uid: 1
+            kb:
+              x-field-uid: 2
+            mb:
+              x-field-uid: 3
+            gb:
+              x-field-uid: 4
+          x-field-uid: 2
+          enum:
+          - bytes
+          - kb
+          - mb
+          - gb
     Rocev2.Verb:
       description: |-
         RoCEv2 Verb. Available options are: WRITE, WRITE_With_Immediate, SEND, SEND_With_Immediate and READ.
