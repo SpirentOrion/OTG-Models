@@ -13730,6 +13730,27 @@ components:
           items:
             $ref: '#/components/schemas/Rocev2.QPs'
           x-field-uid: 3
+        qp_blocks:
+          type: array
+          description: |-
+            Compact way to declare a large number of QPs between this pair of source and destination RoCEv2 devices, as an alternative to listing each QP explicitly in qps.
+          items:
+            $ref: '#/components/schemas/Rocev2.QPBlock'
+          x-field-uid: 4
+        choice:
+          description: |-
+            Selects whether QPs for this peer are declared explicitly in qps or generated compactly via qp_blocks.
+          type: string
+          default: qps
+          x-enum:
+            qps:
+              x-field-uid: 1
+            qp_blocks:
+              x-field-uid: 2
+          x-field-uid: 5
+          enum:
+          - qps
+          - qp_blocks
     Rocev2.QPs:
       description: |-
         This allows the user to set QP properties between a particular source and destination.
@@ -13841,6 +13862,122 @@ components:
           default: '00000000'
           maxLength: 8
           x-field-uid: 7
+    Rocev2.QPBlock:
+      description: |-
+        Compact way to declare a large number of QPs sharing the same parameter template, with an incrementing source QP number, instead of listing each QP explicitly in the qps array.
+      type: object
+      required:
+      - qp_block_name
+      - qp_count
+      properties:
+        qp_block_name:
+          description: |-
+            Name of the QP block, usable as an endpoint reference (e.g. by a flow).
+            Globally unique name of an object. It also serves as the primary key for arrays of objects.
+          x-field-uid: 5
+          type: string
+          x-unique: global
+        qp_count:
+          description: |-
+            Number of QPs to generate in this block.
+          type: integer
+          format: uint32
+          minimum: 1
+          maximum: 4096
+          x-field-uid: 1
+        source_qp_number_start:
+          description: |-
+            Source QP number of the first QP in the block. Subsequent QPs increment from this value.
+          type: integer
+          format: uint32
+          default: 2
+          minimum: 2
+          maximum: 33554431
+          x-field-uid: 2
+        source_qp_number_step:
+          description: |-
+            Increment applied to the source QP number for each successive QP in the block.
+          type: integer
+          format: uint32
+          default: 1
+          minimum: 1
+          x-field-uid: 3
+        connection_type:
+          description: |-
+            Parameter template applied to every QP in the block. source_qp_number is not part of this template as it is generated from source_qp_number_start and source_qp_number_step.
+          $ref: '#/components/schemas/Rocev2.QPBlockParameters'
+          x-field-uid: 4
+    Rocev2.QPBlockParameters:
+      description: |-
+        Defines the parameters for configuring a block of RoCEv2 QPs, shared by every QP in the
+        block. Unlike Rocev2.QPParameters, this does not include source_qp_number, since the source
+        QP number for each QP in the block is generated from source_qp_number_start and
+        source_qp_number_step.
+      type: object
+      properties:
+        dscp:
+          x-field-uid: 1
+          description: |-
+            DSCP value for the RDMA data packets.
+          type: integer
+          format: uint32
+          default: 24
+          minimum: 0
+          maximum: 63
+        ecn:
+          x-field-uid: 2
+          description: |-
+            This field allows to configure bits of the Traffic Class field in the IPv4 or IPv6 header to encode four different code points. Those are non_ect, ect_1, ect_0 and ce. non_ect quivalent is 00, ect_1 represent 01, ect_0 represent 10 and ce means 11.
+          type: string
+          default: ect_1
+          x-enum:
+            non_ect:
+              x-field-uid: 1
+            ect_1:
+              x-field-uid: 2
+            ect_0:
+              x-field-uid: 3
+            ce:
+              x-field-uid: 4
+          enum:
+          - non_ect
+          - ect_1
+          - ect_0
+          - ce
+        udp_source_port:
+          x-field-uid: 3
+          description: |-
+            UDP source port number for this QP.
+          type: integer
+          format: uint32
+          default: 49152
+          minimum: 0
+          maximum: 65535
+        initial_psn:
+          x-field-uid: 4
+          description: |-
+            Initial packet sequence number of the data transfer packet generated for this QP.
+          type: integer
+          format: uint64
+          default: 0
+          minimum: 0
+          maximum: 33554431
+        virtual_address:
+          x-field-uid: 5
+          description: |-
+            Virtual Address where the data transfer from the remote QP will write to.
+          type: string
+          format: hex
+          default: '0000000000000000'
+          maxLength: 16
+        remote_key:
+          x-field-uid: 6
+          description: |-
+            Remote Key linked to the QP's virtual address.
+          type: string
+          format: hex
+          default: '00000000'
+          maxLength: 8
     Rocev2.V6Interface:
       description: |-
         This contains an array of references to IPv6 interfaces, each having a list of IPv6 peers to various destinations.
@@ -13901,6 +14038,27 @@ components:
           items:
             $ref: '#/components/schemas/Rocev2.QPs'
           x-field-uid: 3
+        qp_blocks:
+          type: array
+          description: |-
+            Compact way to declare a large number of QPs between this pair of source and destination RoCEv2 devices, as an alternative to listing each QP explicitly in qps.
+          items:
+            $ref: '#/components/schemas/Rocev2.QPBlock'
+          x-field-uid: 4
+        choice:
+          description: |-
+            Selects whether QPs for this peer are declared explicitly in qps or generated compactly via qp_blocks.
+          type: string
+          default: qps
+          x-enum:
+            qps:
+              x-field-uid: 1
+            qp_blocks:
+              x-field-uid: 2
+          x-field-uid: 5
+          enum:
+          - qps
+          - qp_blocks
     Device.Bmp:
       description: |-
         Top-level container for BGP Monitoring Protocol (BMP) configuration. BMP, as defined in RFC 7854, provides a mechanism to monitor BGP sessions. This configuration pertains to the device when acting as a BMP Monitor /server, listening for connections from BGP speakers (routers) acting as BMP clients. BMP is unidirectional, meaning the monitoring station only receives information; it doesn't send commands to or control the monitored router.
