@@ -53,6 +53,26 @@ components:
           items:
             $ref: './qps.yaml#/components/schemas/Rocev2.QPs'
           x-field-uid: 3
+        qp_blocks:
+          type: array
+          description: >-
+            Compact way to declare a large number of QPs between this pair of source and destination
+            RoCEv2 devices, as an alternative to listing each QP explicitly in qps.
+          items:
+            $ref: './qpblocks.yaml#/components/schemas/Rocev2.QPBlock'
+          x-field-uid: 4
+        choice:
+          description: >-
+            Selects whether QPs for this peer are declared explicitly in qps or generated compactly
+            via qp_blocks.
+          type: string
+          default: qps
+          x-enum:
+            qps:
+              x-field-uid: 1
+            qp_blocks:
+              x-field-uid: 2
+          x-field-uid: 5
 
 
     

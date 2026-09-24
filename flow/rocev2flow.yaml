@@ -67,20 +67,29 @@ components:
       type: object
       required: [tx_endpoint, name]
       properties:
-        tx_endpoint:          
+        tx_endpoint:
           description: |-
-              The unique name of an emulated device that will be transmitting the flows.
+              The unique name of an emulated device, or a QP block, that will be transmitting
+              the flows. When this references a QP block, one flow is generated per QP in the
+              block, paired index-for-index with rx_endpoint when rx_endpoint also references a
+              QP block (both blocks must then declare the same qp_count), or all sharing the
+              same rx_endpoint otherwise. Each generated flow is named "<name>_<index>", where
+              index (0-based) is the QP's position within the block.
           type: string
           x-constraint:
           - '/components/schemas/Rocev2.QPs/properties/qp_name'
+          - '/components/schemas/Rocev2.QPBlock/properties/qp_block_name'
           x-field-uid: 1
         rx_endpoint:
           description: |-
-              The unique name of remote QP or port which be receiving the packets for the flow.
+              The unique name of remote QP, QP block, or port which be receiving the packets
+              for the flow. See tx_endpoint for how a QP block reference on either end affects
+              how many flows are generated.
           type: string
           x-constraint:
           - '/components/schemas/Port/properties/name'
           - '/components/schemas/Rocev2.QPs/properties/qp_name'
+          - '/components/schemas/Rocev2.QPBlock/properties/qp_block_name'
           x-field-uid: 2
         name:
           x-include: ../../common/common.yaml#/components/schemas/Named.Object/properties/name

@@ -10242,6 +10242,22 @@ message Rocev2V4Peer {
   // This allows the user to set  multiple QPs and its properties between a pair of source
   // and destination RoCEv2 devices.
   repeated Rocev2QPs qps = 3;
+
+  // Compact way to declare a large number of QPs between this pair of source and destination
+  // RoCEv2 devices, as an alternative to listing each QP explicitly in qps.
+  repeated Rocev2QPBlock qp_blocks = 4;
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      qps = 1;
+      qp_blocks = 2;
+    }
+  }
+  // Selects whether QPs for this peer are declared explicitly in qps or generated compactly
+  // via qp_blocks.
+  // default = Choice.Enum.qps
+  optional Choice.Enum choice = 5;
 }
 
 // This allows the user to set QP properties between a particular source and destination.
@@ -10319,6 +10335,80 @@ message Rocev2QPParameters {
   optional string remote_key = 7;
 }
 
+// Compact way to declare a large number of QPs sharing the same parameter template,
+// with an incrementing source QP number, instead of listing each QP explicitly in the
+// qps array.
+message Rocev2QPBlock {
+
+  // Name of the QP block, usable as an endpoint reference (e.g. by a flow).
+  // Globally unique name of an object. It also serves as the primary key for arrays of
+  // objects.
+  // required = true
+  optional string qp_block_name = 5;
+
+  // Number of QPs to generate in this block.
+  // required = true
+  optional uint32 qp_count = 1;
+
+  // Source QP number of the first QP in the block. Subsequent QPs increment from this
+  // value.
+  // default = 2
+  optional uint32 source_qp_number_start = 2;
+
+  // Increment applied to the source QP number for each successive QP in the block.
+  // default = 1
+  optional uint32 source_qp_number_step = 3;
+
+  // Parameter template applied to every QP in the block. source_qp_number is not part
+  // of this template as it is generated from source_qp_number_start and source_qp_number_step.
+  Rocev2QPBlockParameters connection_type = 4;
+}
+
+// Defines the parameters for configuring a block of RoCEv2 QPs, shared by every QP
+// in the
+// block. Unlike Rocev2.QPParameters, this does not include source_qp_number, since
+// the source
+// QP number for each QP in the block is generated from source_qp_number_start and
+// source_qp_number_step.
+message Rocev2QPBlockParameters {
+
+  // DSCP value for the RDMA data packets.
+  // default = 24
+  optional uint32 dscp = 1;
+
+  message Ecn {
+    enum Enum {
+      unspecified = 0;
+      non_ect = 1;
+      ect_1 = 2;
+      ect_0 = 3;
+      ce = 4;
+    }
+  }
+  // This field allows to configure bits of the Traffic Class field in the IPv4 or IPv6
+  // header to encode four different code points. Those are non_ect, ect_1, ect_0 and
+  // ce. non_ect quivalent is 00, ect_1 represent 01, ect_0 represent 10 and ce means
+  // 11.
+  // default = Ecn.Enum.ect_1
+  optional Ecn.Enum ecn = 2;
+
+  // UDP source port number for this QP.
+  // default = 49152
+  optional uint32 udp_source_port = 3;
+
+  // Initial packet sequence number of the data transfer packet generated for this QP.
+  // default = 0
+  optional uint64 initial_psn = 4;
+
+  // Virtual Address where the data transfer from the remote QP will write to.
+  // default = 0000000000000000
+  optional string virtual_address = 5;
+
+  // Remote Key linked to the QP's virtual address.
+  // default = 00000000
+  optional string remote_key = 6;
+}
+
 // This contains an array of references to IPv6 interfaces, each having a list of IPv6
 // peers to various destinations.
 message Rocev2V6Interface {
@@ -10357,6 +10447,22 @@ message Rocev2V6Peer {
   // This allows the user to set  multiple QPs and its properties between a pair of source
   // and destination RoCEv2 devices.
   repeated Rocev2QPs qps = 3;
+
+  // Compact way to declare a large number of QPs between this pair of source and destination
+  // RoCEv2 devices, as an alternative to listing each QP explicitly in qps.
+  repeated Rocev2QPBlock qp_blocks = 4;
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      qps = 1;
+      qp_blocks = 2;
+    }
+  }
+  // Selects whether QPs for this peer are declared explicitly in qps or generated compactly
+  // via qp_blocks.
+  // default = Choice.Enum.qps
+  optional Choice.Enum choice = 5;
 }
 
 // Top-level container for BGP Monitoring Protocol (BMP) configuration. BMP, as defined
@@ -14922,19 +15028,28 @@ message Rocev2TargetLineRate {
 // Configure properties for a specific RoCE flow on the Tx port.
 message Rocev2Flow {
 
-  // The unique name of an emulated device that will be transmitting the flows.
+  // The unique name of an emulated device, or a QP block, that will be transmitting
+  // the flows. When this references a QP block, one flow is generated per QP in the
+  // block, paired index-for-index with rx_endpoint when rx_endpoint also references a
+  // QP block (both blocks must then declare the same qp_count), or all sharing the
+  // same rx_endpoint otherwise. Each generated flow is named <name>_<index>, where
+  // index (0-based) is the QP's position within the block.
   // 
   // x-constraint:
   // - /components/schemas/Rocev2.QPs/properties/qp_name
+  // - /components/schemas/Rocev2.QPBlock/properties/qp_block_name
   // 
   // required = true
   optional string tx_endpoint = 1;
 
-  // The unique name of remote QP or port which be receiving the packets for the flow.
+  // The unique name of remote QP, QP block, or port which be receiving the packets
+  // for the flow. See tx_endpoint for how a QP block reference on either end affects
+  // how many flows are generated.
   // 
   // x-constraint:
   // - /components/schemas/Port/properties/name
   // - /components/schemas/Rocev2.QPs/properties/qp_name
+  // - /components/schemas/Rocev2.QPBlock/properties/qp_block_name
   // 
   optional string rx_endpoint = 2;
 

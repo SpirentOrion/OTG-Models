@@ -1,0 +1,71 @@
+components:
+  schemas:
+    Rocev2.QPBlock:
+      description: >-
+        Compact way to declare a large number of QPs sharing the same parameter template, with an
+        incrementing source QP number, instead of listing each QP explicitly in the qps array.
+      type: object
+      required: [qp_block_name, qp_count]
+      properties:
+        qp_block_name:
+          description: |-
+            Name of the QP block, usable as an endpoint reference (e.g. by a flow).
+          x-include: ../../common/common.yaml#/components/schemas/Named.Object/properties/name
+          x-field-uid: 5
+        qp_count:
+          description: >-
+            Number of QPs to generate in this block.
+          type: integer
+          format: uint32
+          minimum: 1
+          maximum: 4096
+          x-field-uid: 1
+        source_qp_number_start:
+          description: >-
+            Source QP number of the first QP in the block. Subsequent QPs increment from this value.
+          type: integer
+          format: uint32
+          default: 2
+          minimum: 2
+          maximum: 33554431
+          x-field-uid: 2
+        source_qp_number_step:
+          description: >-
+            Increment applied to the source QP number for each successive QP in the block.
+          type: integer
+          format: uint32
+          default: 1
+          minimum: 1
+          x-field-uid: 3
+        connection_type:
+          description: >-
+            Parameter template applied to every QP in the block. source_qp_number is not part of
+            this template as it is generated from source_qp_number_start and source_qp_number_step.
+          $ref: '#/components/schemas/Rocev2.QPBlockParameters'
+          x-field-uid: 4
+    Rocev2.QPBlockParameters:
+      description: |-
+        Defines the parameters for configuring a block of RoCEv2 QPs, shared by every QP in the
+        block. Unlike Rocev2.QPParameters, this does not include source_qp_number, since the source
+        QP number for each QP in the block is generated from source_qp_number_start and
+        source_qp_number_step.
+      type: object
+      properties:
+        dscp:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/dscp'
+          x-field-uid: 1
+        ecn:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/ecn'
+          x-field-uid: 2
+        udp_source_port:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/udp_source_port'
+          x-field-uid: 3
+        initial_psn:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/initial_psn'
+          x-field-uid: 4
+        virtual_address:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/virtual_address'
+          x-field-uid: 5
+        remote_key:
+          x-include: './qps.yaml#/components/schemas/Rocev2.QPParameters/properties/remote_key'
+          x-field-uid: 6
