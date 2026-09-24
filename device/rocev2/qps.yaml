@@ -98,9 +98,41 @@ components:
           description: >-
             Remote Key linked to the QP's virtual address.
           type: string
-          format: hex          
+          format: hex
           default: "00000000"
           maxLength: 8
           x-field-uid: 7
+        pfc_priority:
+          $ref: '#/components/schemas/Rocev2.PfcPriority'
+          x-field-uid: 8
+    Rocev2.PfcPriority:
+      description: >-
+        Customer-defined IEEE 802.1Qbb PFC priority binding for this QP's
+        data-plane traffic, used when it carries no 802.1Q VLAN tag (RoCEv2
+        does not support VLAN tagging in this model).
+      type: object
+      properties:
+        enable:
+          description: >-
+            Enables overriding this QP's PFC priority with the
+            customer-defined `value` below. When true, `value` takes
+            precedence over any other, implicit determination of this
+            traffic's PFC priority elsewhere in the model or in the engine.
+            When false, `value` is inapplicable and no explicit binding is
+            configured.
+          type: boolean
+          default: false
+          x-field-uid: 1
+        value:
+          description: >-
+            Customer-defined PFC priority (0-7). Independent of the
+            enclosing `Rocev2.QPParameters.dscp` — the user must keep the
+            two consistent with the DUT's own DSCP-to-priority mapping.
+            Only applicable when enable is true.
+          type: integer
+          format: uint32
+          minimum: 0
+          maximum: 7
+          default: 0
+          x-field-uid: 2
 
-    

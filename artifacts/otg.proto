@@ -10317,6 +10317,28 @@ message Rocev2QPParameters {
   // Remote Key linked to the QP's virtual address.
   // default = 00000000
   optional string remote_key = 7;
+
+  // Description missing in models
+  Rocev2PfcPriority pfc_priority = 8;
+}
+
+// Customer-defined IEEE 802.1Qbb PFC priority binding for this QP's data-plane traffic,
+// used when it carries no 802.1Q VLAN tag (RoCEv2 does not support VLAN tagging in
+// this model).
+message Rocev2PfcPriority {
+
+  // Enables overriding this QP's PFC priority with the customer-defined `value` below.
+  // When true, `value` takes precedence over any other, implicit determination of this
+  // traffic's PFC priority elsewhere in the model or in the engine. When false, `value`
+  // is inapplicable and no explicit binding is configured.
+  // default = False
+  optional bool enable = 1;
+
+  // Customer-defined PFC priority (0-7). Independent of the enclosing `Rocev2.QPParameters.dscp`
+  // — the user must keep the two consistent with the DUT's own DSCP-to-priority mapping.
+  // Only applicable when enable is true.
+  // default = 0
+  optional uint32 value = 2;
 }
 
 // This contains an array of references to IPv6 interfaces, each having a list of IPv6
