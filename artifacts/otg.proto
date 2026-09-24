@@ -14963,6 +14963,71 @@ message Rocev2Flow {
   // (MB) and GigaBytes (GB).
   // default = MessageSizeUnit.Enum.mb
   optional MessageSizeUnit.Enum message_size_unit = 6;
+
+  // Description missing in models
+  Rocev2FlowDuration duration = 7;
+}
+
+// Determines when this flow automatically stops sending message_size RDMA operations.
+// continuous (default) is today's behavior: the flow keeps running per Rocev2.TransmitType.choice
+// until externally stopped. fixed_message_count and fixed_data_size are two equivalent
+// ways to express the same stopping condition -- pick whichever unit is natural for
+// the test: an exact operation count, or an approximate total data volume.
+message Rocev2FlowDuration {
+
+  message Choice {
+    enum Enum {
+      unspecified = 0;
+      continuous = 1;
+      fixed_message_count = 2;
+      fixed_data_size = 3;
+    }
+  }
+  // Description missing in models
+  // default = Choice.Enum.continuous
+  optional Choice.Enum choice = 1;
+
+  // Description missing in models
+  Rocev2FixedMessageCount fixed_message_count = 2;
+
+  // Description missing in models
+  Rocev2FixedDataSize fixed_data_size = 3;
+}
+
+// Transmit a fixed number of message_size-sized RDMA operations, then stop. Total data
+// transferred is exactly count * message_size -- no rounding or truncation, since count
+// is what actually gets posted.
+message Rocev2FixedMessageCount {
+
+  // Number of message_size-sized RDMA operations to send before this flow stops.
+  // default = 1
+  optional uint64 count = 1;
+}
+
+// Transmit until approximately this much total data has been sent, then stop. Total
+// data is chunked into repeated message_size operations; when size is not an exact
+// multiple of message_size, the final operation is truncated to the remaining byte
+// count (implementation-defined rounding otherwise). Prefer fixed_message_count when
+// an exact, unambiguous stop point matters.
+message Rocev2FixedDataSize {
+
+  // Total amount of data to transfer for this flow.
+  // default = 1
+  optional uint64 size = 1;
+
+  message Unit {
+    enum Enum {
+      unspecified = 0;
+      bytes = 1;
+      kb = 2;
+      mb = 3;
+      gb = 4;
+    }
+  }
+  // Unit of size. Available options are Bytes, KiloBytes (KB), MegaBytes (MB) and GigaBytes
+  // (GB).
+  // default = Unit.Enum.gb
+  optional Unit.Enum unit = 2;
 }
 
 // RoCEv2 Verb. Available options are: WRITE, WRITE_With_Immediate, SEND, SEND_With_Immediate
